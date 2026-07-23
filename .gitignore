@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Test / coverage
+coverage/
+.vitest/
+
+# Secrets & local env
+.env
+.env.local
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+.claude/
+.codex/
+.idea/
+
+# Local package artifacts and backups
+*.tgz
+*.bak
+*.bak.*

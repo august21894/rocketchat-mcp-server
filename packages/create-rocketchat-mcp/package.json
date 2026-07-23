@@ -1,0 +1,43 @@
+{
+  "name": "create-rocketchat-mcp",
+  "version": "1.0.2",
+  "description": "Interactive initializer for a stable, secure Rocket.Chat MCP installation",
+  "author": "LongLD",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "create",
+    "initializer",
+    "mcp",
+    "rocket.chat",
+    "rocketchat",
+    "codex",
+    "claude"
+  ],
+  "homepage": "https://github.com/august21894/rocketchat-mcp-server#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/august21894/rocketchat-mcp-server.git",
+    "directory": "packages/create-rocketchat-mcp"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "create-rocketchat-mcp": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "rocketchatMcp": {
+    "runtimeVersion": "1.0.2"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.7.0"
+  }
+}

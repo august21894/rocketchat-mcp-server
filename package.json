@@ -1,0 +1,88 @@
+{
+  "name": "rocketchat-mcp-server",
+  "version": "1.0.2",
+  "description": "MCP server for safe Rocket.Chat interaction over the REST API, with an interactive setup wizard for Claude Code, Claude Desktop and Codex",
+  "author": "LongLD",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "rocket.chat",
+    "rocketchat",
+    "claude",
+    "claude-code",
+    "codex",
+    "chatops",
+    "ai-agent"
+  ],
+  "homepage": "https://github.com/august21894/rocketchat-mcp-server#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/august21894/rocketchat-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/august21894/rocketchat-mcp-server/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "bin": {
+    "rocketchat-mcp": "dist/index.js",
+    "rocketchat-mcp-setup": "dist/setup/cli.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "postinstall.mjs"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "build:initializer": "npm run build --workspace=create-rocketchat-mcp",
+    "build:all": "npm run build && npm run build:initializer",
+    "pack:initializer": "npm pack --workspace=create-rocketchat-mcp --dry-run",
+    "dev": "tsx src/index.ts",
+    "setup": "tsx src/setup/cli.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "typecheck:initializer": "npm run typecheck --workspace=create-rocketchat-mcp",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:unit": "vitest run test/unit",
+    "test:contract": "vitest run test/contract",
+    "test:integration": "vitest run test/integration",
+    "test:e2e": "vitest run test/e2e",
+    "test:watch": "vitest",
+    "deploy": "sh scripts/deploy.sh",
+    "deploy:check": "sh scripts/deploy.sh check",
+    "deploy:current": "sh scripts/deploy.sh current",
+    "deploy:patch": "sh scripts/deploy.sh patch",
+    "deploy:minor": "sh scripts/deploy.sh minor",
+    "deploy:major": "sh scripts/deploy.sh major",
+    "mcp:local": "bash scripts/use-local-codex.sh",
+    "postinstall": "node postinstall.mjs",
+    "prepublishOnly": "npm run build && npm run lint && npm run test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^9.18.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.19.0",
+    "vitest": "^4.1.10"
+  }
+}
