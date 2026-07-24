@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   upsertJsonMcpServer,
+  upsertClaudeCodeReadOnlyPermissions,
   renderCodexTomlBlock,
   upsertCodexToml,
   tomlString,
@@ -56,6 +57,23 @@ describe('tomlString', () => {
   });
 });
 
+describe('upsertClaudeCodeReadOnlyPermissions', () => {
+  it('preserves existing rules and adds each read-only tool exactly once', () => {
+    const first = upsertClaudeCodeReadOnlyPermissions(
+      JSON.stringify({ permissions: { allow: ['Bash(git status)'] } }),
+      'rocketchat',
+    );
+    const second = upsertClaudeCodeReadOnlyPermissions(first, 'rocketchat');
+    const parsed = JSON.parse(second);
+    expect(parsed.permissions.allow).toEqual([
+      'Bash(git status)',
+      'mcp__rocketchat__rocketchat_preview_message',
+      'mcp__rocketchat__rocketchat_search_users',
+      'mcp__rocketchat__rocketchat_list_rooms',
+    ]);
+  });
+});
+
 describe('renderCodexTomlBlock', () => {
   it('renders header, command, args and env subtable', () => {
     const block = renderCodexTomlBlock('rocketchat', DEF);
@@ -64,6 +82,10 @@ describe('renderCodexTomlBlock', () => {
     expect(block).toContain('args = ["/opt/app/dist/index.js"]');
     expect(block).toContain('[mcp_servers.rocketchat.env]');
     expect(block).toContain('ROCKETCHAT_BASE_URL = "https://chat.example.com"');
+    expect(block).toContain('[mcp_servers.rocketchat.tools.rocketchat_preview_message]');
+    expect(block).toContain('[mcp_servers.rocketchat.tools.rocketchat_search_users]');
+    expect(block).toContain('[mcp_servers.rocketchat.tools.rocketchat_list_rooms]');
+    expect(block).toContain('approval_mode = "approve"');
   });
 });
 

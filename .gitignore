@@ -24,8 +24,10 @@ npm-debug.log*
 .claude/
 .codex/
 .idea/
+.playwright-mcp/
 
 # Local package artifacts and backups
 *.tgz
 *.bak
 *.bak.*
+/vending-machine-end-to-end.*

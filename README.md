@@ -121,6 +121,10 @@ người dùng, rồi mới gọi `rocketchat_send_message` với `dryRun=false`
 hiện màn xác nhận. Nếu người dùng chỉ yêu cầu xem trước thì workflow dừng sau tool
 preview.
 
+Wizard tự thêm permission cho ba tool read-only (`preview_message`, `search_users`,
+`list_rooms`) trên Codex và Claude Code, nên các bước đọc/xem trước không cần
+confirm. Tool gửi thật vẫn theo permission/approval policy của MCP client.
+
 ## Kiểm thử với MCP Inspector
 
 ```bash

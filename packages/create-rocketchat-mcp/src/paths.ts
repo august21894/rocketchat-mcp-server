@@ -19,6 +19,8 @@ export interface AgentPath {
   label: string;
   kind: 'json' | 'codex-toml';
   configPath: string;
+  /** Claude Code permission settings, when this client supports them. */
+  permissionConfigPath?: string;
   restartNote: string;
 }
 
@@ -75,6 +77,7 @@ export function resolveAgentPaths(ctx: PathContext): AgentPath[] {
       label: 'Claude Code',
       kind: 'json',
       configPath: join(ctx.homedir, '.claude.json'),
+      permissionConfigPath: join(ctx.homedir, '.claude', 'settings.json'),
       restartNote: 'Start a new Claude Code session, then run /mcp.',
     },
     {

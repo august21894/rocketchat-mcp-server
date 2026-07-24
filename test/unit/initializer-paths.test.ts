@@ -28,5 +28,6 @@ describe('initializer paths', () => {
     });
     expect(agents.map((agent) => agent.id)).toEqual(['codex', 'claude-code', 'claude-desktop']);
     expect(agents[0]!.configPath).toBe('/custom/codex/config.toml');
+    expect(agents[1]!.permissionConfigPath).toBe('/Users/alice/.claude/settings.json');
   });
 });

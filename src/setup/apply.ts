@@ -8,7 +8,12 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { ResolvedAgent } from './agents.js';
-import { upsertCodexToml, upsertJsonMcpServer, type McpServerDef } from './writers.js';
+import {
+  upsertClaudeCodeReadOnlyPermissions,
+  upsertCodexToml,
+  upsertJsonMcpServer,
+  type McpServerDef,
+} from './writers.js';
 
 export const SERVER_KEY = 'rocketchat';
 
@@ -42,14 +47,23 @@ export function applyToAgent(agent: ResolvedAgent, def: McpServerDef): ApplyResu
   let result;
   try {
     result = upsertJsonMcpServer(existing, SERVER_KEY, def);
+    const permissionPath = agent.permissionConfigPath;
+    const permissionExisting =
+      permissionPath && existsSync(permissionPath)
+        ? readFileSync(permissionPath, 'utf8')
+        : undefined;
+    const permissionText = permissionPath
+      ? upsertClaudeCodeReadOnlyPermissions(permissionExisting, SERVER_KEY)
+      : undefined;
+    const backupPath = write(path, result.text, existing);
+    if (permissionPath && permissionText) write(permissionPath, permissionText, permissionExisting);
+    const status: ApplyStatus = result.replaced ? 'updated' : 'added';
+    return backupPath
+      ? { agentId: agent.id, path, status, backupPath }
+      : { agentId: agent.id, path, status };
   } catch {
     return { agentId: agent.id, path, status: 'invalid-json' };
   }
-  const backupPath = write(path, result.text, existing);
-  const status: ApplyStatus = result.replaced ? 'updated' : 'added';
-  return backupPath
-    ? { agentId: agent.id, path, status, backupPath }
-    : { agentId: agent.id, path, status };
 }
 
 /** Write `text` to `path`, backing up an existing file first. Returns backup path (if any). */

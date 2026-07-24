@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { applyToAgent, SERVER_KEY } from '../../src/setup/apply.js';
 import type { ResolvedAgent } from '../../src/setup/agents.js';
 import type { McpServerDef } from '../../src/setup/writers.js';
@@ -37,6 +37,16 @@ function jsonAgent(path: string): ResolvedAgent {
 }
 function codexAgent(path: string): ResolvedAgent {
   return { id: 'codex', label: 'Codex CLI', kind: 'codex-toml', configPath: path, postNote: '' };
+}
+function claudeCodeAgent(path: string, permissionConfigPath: string): ResolvedAgent {
+  return {
+    id: 'claude-code',
+    label: 'Claude Code',
+    kind: 'json',
+    configPath: path,
+    permissionConfigPath,
+    postNote: '',
+  };
 }
 
 describe('applyToAgent — JSON', () => {
@@ -77,6 +87,24 @@ describe('applyToAgent — JSON', () => {
     // File left untouched, no backup created.
     expect(readFileSync(path, 'utf8')).toBe('{ this is not json');
     expect(existsSync(path + '.bak')).toBe(false);
+  });
+
+  it('adds allow rules for selected read-only tools in Claude Code', () => {
+    const path = tmpFile('claude.json');
+    const settings = join(dirname(path), 'settings.json');
+    writeFileSync(
+      settings,
+      JSON.stringify({ permissions: { allow: ['Bash(git status)'] } }),
+      'utf8',
+    );
+    applyToAgent(claudeCodeAgent(path, settings), DEF);
+    const parsed = JSON.parse(readFileSync(settings, 'utf8'));
+    expect(parsed.permissions.allow).toEqual([
+      'Bash(git status)',
+      'mcp__rocketchat__rocketchat_preview_message',
+      'mcp__rocketchat__rocketchat_search_users',
+      'mcp__rocketchat__rocketchat_list_rooms',
+    ]);
   });
 });
 

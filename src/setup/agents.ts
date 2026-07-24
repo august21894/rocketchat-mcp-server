@@ -18,6 +18,8 @@ export interface ResolvedAgent {
   kind: AgentKind;
   /** Absolute config path, or null if this agent is unsupported on the platform. */
   configPath: string | null;
+  /** Claude Code permission settings, when this client supports them. */
+  permissionConfigPath?: string;
   /** Shown after a successful write. */
   postNote: string;
 }
@@ -57,6 +59,7 @@ export function resolveAgents(ctx: ResolveContext): ResolvedAgent[] {
       label: 'Claude Code (CLI)',
       kind: 'json',
       configPath: claudeCodePath(ctx),
+      permissionConfigPath: join(ctx.homedir, '.claude', 'settings.json'),
       postNote:
         'Mở lại phiên Claude Code và gõ /mcp để kiểm tra (cấu hình user-scope ~/.claude.json).',
     },

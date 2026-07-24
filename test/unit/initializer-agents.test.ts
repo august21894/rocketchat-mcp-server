@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   FileTransaction,
   configureAgent,
+  upsertClaudeCodeReadOnlyPermissions,
   upsertCodexManagedBlock,
   upsertJsonServer,
 } from '../../packages/create-rocketchat-mcp/src/agents.js';
@@ -50,6 +51,25 @@ describe('initializer agent writers', () => {
     expect(second).toContain('/new/runtime/dist/index.js');
     expect(second).not.toContain('/stable/runtime/dist/index.js');
     expect(second).toContain('model = "gpt-5"');
+    expect(second).toContain('[mcp_servers.rocketchat-facon.tools.rocketchat_preview_message]');
+    expect(second).toContain('[mcp_servers.rocketchat-facon.tools.rocketchat_search_users]');
+    expect(second).toContain('[mcp_servers.rocketchat-facon.tools.rocketchat_list_rooms]');
+    expect(second).toContain('approval_mode = "approve"');
+  });
+
+  it('allows only selected read-only tools in Claude Code permissions', () => {
+    const first = upsertClaudeCodeReadOnlyPermissions(
+      JSON.stringify({ permissions: { allow: ['Bash(git status)'] } }),
+      'rocketchat-facon',
+    );
+    const second = upsertClaudeCodeReadOnlyPermissions(first, 'rocketchat-facon');
+    const parsed = JSON.parse(second);
+    expect(parsed.permissions.allow).toEqual([
+      'Bash(git status)',
+      'mcp__rocketchat-facon__rocketchat_preview_message',
+      'mcp__rocketchat-facon__rocketchat_search_users',
+      'mcp__rocketchat-facon__rocketchat_list_rooms',
+    ]);
   });
 
   it('refuses to overwrite an unmanaged Codex block', () => {
@@ -72,17 +92,28 @@ describe('initializer agent writers', () => {
       label: 'Claude Code',
       kind: 'json',
       configPath: path,
+      permissionConfigPath: join(dir, 'settings.json'),
       restartNote: '',
     };
     const transaction = new FileTransaction();
 
     configureAgent(agent, 'rocketchat-facon', definition, transaction);
     expect(readFileSync(path, 'utf8')).toContain('rocketchat-facon');
+    expect(readFileSync(agent.permissionConfigPath!, 'utf8')).toContain(
+      'mcp__rocketchat-facon__rocketchat_preview_message',
+    );
+    expect(readFileSync(agent.permissionConfigPath!, 'utf8')).toContain(
+      'mcp__rocketchat-facon__rocketchat_search_users',
+    );
+    expect(readFileSync(agent.permissionConfigPath!, 'utf8')).toContain(
+      'mcp__rocketchat-facon__rocketchat_list_rooms',
+    );
     expect(transaction.backups).toHaveLength(1);
     expect(existsSync(transaction.backups[0]!)).toBe(true);
 
     transaction.rollback();
     expect(readFileSync(path, 'utf8')).toBe(original);
+    expect(existsSync(agent.permissionConfigPath!)).toBe(false);
     expect(statSync(path).mode & 0o777).toBe(0o640);
   });
 });

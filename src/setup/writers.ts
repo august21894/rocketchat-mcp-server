@@ -9,6 +9,12 @@ export interface McpServerDef {
   env: Record<string, string>;
 }
 
+const AUTO_APPROVED_READ_ONLY_TOOLS = [
+  'rocketchat_preview_message',
+  'rocketchat_search_users',
+  'rocketchat_list_rooms',
+] as const;
+
 /**
  * Upsert `mcpServers.<name>` into a JSON config (Claude Desktop / Claude Code),
  * preserving every other key. Throws if the existing text is not valid JSON —
@@ -42,6 +48,52 @@ export function upsertJsonMcpServer(
   return { text: JSON.stringify(root, null, 2) + '\n', replaced };
 }
 
+/** Allow only selected read-only tools in Claude Code; sending still prompts. */
+export function upsertClaudeCodeReadOnlyPermissions(
+  existingText: string | undefined,
+  serverName: string,
+): string {
+  let root: Record<string, unknown> = {};
+  if (existingText?.trim()) {
+    const parsed = JSON.parse(existingText) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('Existing Claude Code settings are not a JSON object.');
+    }
+    root = parsed as Record<string, unknown>;
+  }
+
+  const currentPermissions = root.permissions;
+  if (
+    currentPermissions !== undefined &&
+    (!currentPermissions ||
+      typeof currentPermissions !== 'object' ||
+      Array.isArray(currentPermissions))
+  ) {
+    throw new Error('Existing Claude Code permissions are not a JSON object.');
+  }
+  const permissions = (currentPermissions ?? {}) as Record<string, unknown>;
+  const currentAllow = permissions.allow;
+  if (
+    currentAllow !== undefined &&
+    (!Array.isArray(currentAllow) || !currentAllow.every(isString))
+  ) {
+    throw new Error('Existing Claude Code permissions.allow is not a string array.');
+  }
+
+  const allow = [...((currentAllow ?? []) as string[])];
+  for (const tool of AUTO_APPROVED_READ_ONLY_TOOLS) {
+    const permission = `mcp__${serverName}__${tool}`;
+    if (!allow.includes(permission)) allow.push(permission);
+  }
+  permissions.allow = allow;
+  root.permissions = permissions;
+  return JSON.stringify(root, null, 2) + '\n';
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === 'string';
+}
+
 /** Escape a string for a TOML basic (double-quoted) string. */
 export function tomlString(value: string): string {
   const escaped = value
@@ -65,6 +117,11 @@ export function renderCodexTomlBlock(name: string, def: McpServerDef): string {
     for (const key of envKeys) {
       lines.push(`${key} = ${tomlString(def.env[key] ?? '')}`);
     }
+  }
+  for (const tool of AUTO_APPROVED_READ_ONLY_TOOLS) {
+    lines.push('');
+    lines.push(`[mcp_servers.${name}.tools.${tool}]`);
+    lines.push('approval_mode = "approve"');
   }
   return lines.join('\n') + '\n';
 }

@@ -13,6 +13,12 @@ import { dirname, join } from 'node:path';
 import type { AgentPath } from './paths.js';
 import type { McpServerDefinition } from './types.js';
 
+const AUTO_APPROVED_READ_ONLY_TOOLS = [
+  'rocketchat_preview_message',
+  'rocketchat_search_users',
+  'rocketchat_list_rooms',
+] as const;
+
 interface Snapshot {
   existed: boolean;
   content?: string;
@@ -62,11 +68,21 @@ export function configureAgent(
   const existing = existsSync(agent.configPath)
     ? readFileSync(agent.configPath, 'utf8')
     : undefined;
+  const permissionExisting =
+    agent.permissionConfigPath && existsSync(agent.permissionConfigPath)
+      ? readFileSync(agent.permissionConfigPath, 'utf8')
+      : undefined;
   const next =
     agent.kind === 'json'
       ? upsertJsonServer(existing, serverName, definition)
       : upsertCodexManagedBlock(existing, serverName, definition);
+  const permissionNext = agent.permissionConfigPath
+    ? upsertClaudeCodeReadOnlyPermissions(permissionExisting, serverName)
+    : undefined;
   transaction.write(agent.configPath, next);
+  if (agent.permissionConfigPath && permissionNext) {
+    transaction.write(agent.permissionConfigPath, permissionNext);
+  }
 }
 
 export function upsertJsonServer(
@@ -90,6 +106,52 @@ export function upsertJsonServer(
   servers[serverName] = definition;
   root.mcpServers = servers;
   return JSON.stringify(root, null, 2) + '\n';
+}
+
+/** Allow only selected read-only tools in Claude Code; sending still prompts. */
+export function upsertClaudeCodeReadOnlyPermissions(
+  existing: string | undefined,
+  serverName: string,
+): string {
+  let root: Record<string, unknown> = {};
+  if (existing?.trim()) {
+    const parsed = JSON.parse(existing) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('Existing Claude Code settings are not a JSON object.');
+    }
+    root = parsed as Record<string, unknown>;
+  }
+
+  const currentPermissions = root.permissions;
+  if (
+    currentPermissions !== undefined &&
+    (!currentPermissions ||
+      typeof currentPermissions !== 'object' ||
+      Array.isArray(currentPermissions))
+  ) {
+    throw new Error('Existing Claude Code permissions are not a JSON object.');
+  }
+  const permissions = (currentPermissions ?? {}) as Record<string, unknown>;
+  const currentAllow = permissions.allow;
+  if (
+    currentAllow !== undefined &&
+    (!Array.isArray(currentAllow) || !currentAllow.every(isString))
+  ) {
+    throw new Error('Existing Claude Code permissions.allow is not a string array.');
+  }
+
+  const allow = [...((currentAllow ?? []) as string[])];
+  for (const tool of AUTO_APPROVED_READ_ONLY_TOOLS) {
+    const permission = `mcp__${serverName}__${tool}`;
+    if (!allow.includes(permission)) allow.push(permission);
+  }
+  permissions.allow = allow;
+  root.permissions = permissions;
+  return JSON.stringify(root, null, 2) + '\n';
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === 'string';
 }
 
 export function upsertCodexManagedBlock(
@@ -143,6 +205,9 @@ function renderCodexBlock(
     for (const [key, value] of envEntries) {
       lines.push(`${key} = ${tomlString(value)}`);
     }
+  }
+  for (const tool of AUTO_APPROVED_READ_ONLY_TOOLS) {
+    lines.push('', `[mcp_servers.${serverName}.tools.${tool}]`, 'approval_mode = "approve"');
   }
   lines.push(end);
   return lines.join('\n') + '\n';
