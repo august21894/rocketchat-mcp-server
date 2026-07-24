@@ -13,7 +13,9 @@ const mock = new MockRocketChat({
   userId: USER_ID,
   authToken: TEST_TOKEN,
   users: [{ _id: 'u1', username: 'alice', name: 'Alice' }],
-  subscriptions: [{ _id: 's1', rid: 'GENERAL', name: 'general', t: 'c' }],
+  subscriptions: [
+    { _id: 's1', rid: 'GENERAL', name: 'general', fname: 'General Discussion', t: 'c' },
+  ],
 });
 
 let client: Client;
@@ -125,12 +127,12 @@ describe('MCP stdio end-to-end', () => {
     expect(result.structuredContent).toMatchObject({
       sent: false,
       preview: true,
-      destination: { type: 'channel', name: 'general' },
+      destination: { type: 'channel', name: 'general', displayName: 'General Discussion' },
       renderedText: '🤖 @alice Build done.',
-      previewText: '📨 **Facon → #general**\n\n> 🤖 @alice Build done.',
+      previewText: '📨 **Facon → #General Discussion**\n\n> 🤖 @alice Build done.',
     });
     const text = (result.content as { type: string; text: string }[])[0]!.text;
-    expect(text).toBe('📨 **Facon → #general**\n\n> 🤖 @alice Build done.');
+    expect(text).toBe('📨 **Facon → #General Discussion**\n\n> 🤖 @alice Build done.');
     const after = mock.requests.filter((r) => r.path.includes('/chat.')).length;
     expect(after).toBe(before);
   });

@@ -36,7 +36,8 @@ function destinationLabel(destination: DestinationSummary): string {
     if (destination.displayName) return `${destination.displayName} (${usernameLabel})`;
     return usernameLabel;
   }
-  return destination.name.startsWith('#') ? destination.name : `#${destination.name}`;
+  const roomName = destination.displayName ?? destination.name;
+  return roomName.startsWith('#') ? roomName : `#${roomName}`;
 }
 
 function truncatePreviewText(text: string): string {

@@ -114,10 +114,11 @@ sang bước gửi.
 ```
 
 Với DM, nếu Rocket.Chat trả về tên hiển thị thì nhãn người nhận có dạng
-`Long Duy (@longld)`; nếu không có thì dùng `@longld`. Phần `content` cắt preview
-sau 300 ký tự và thêm `...`; trường `renderedText` luôn giữ đầy đủ nội dung thực sự
-sẽ gửi. Agent phải hiển thị toàn bộ `previewText`, không được chỉ lấy
-`renderedText`.
+`Long Duy (@longld)`; nếu không có thì dùng `@longld`. Với channel/private room,
+preview ưu tiên `displayName` (ví dụ `#General Discussion`) rồi mới dùng `name`.
+Phần `content` cắt preview sau 300 ký tự và thêm `...`; trường `renderedText` luôn
+giữ đầy đủ nội dung thực sự sẽ gửi. Agent phải hiển thị toàn bộ `previewText`, không
+được chỉ lấy `renderedText`.
 
 Annotations: `readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: true`.
 
