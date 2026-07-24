@@ -31,6 +31,10 @@ afterAll(() => mock.stop());
 beforeEach(() => mock.reset());
 
 describe('RocketChatClient — authentication & requests', () => {
+  it('reads the Rocket.Chat server version', async () => {
+    await expect(makeClient().info()).resolves.toMatchObject({ version: '7.0.0' });
+  });
+
   it('attaches X-User-Id and X-Auth-Token headers', async () => {
     await makeClient().me();
     const req = mock.requests.at(-1)!;
@@ -108,6 +112,30 @@ describe('RocketChatClient — write payloads', () => {
       tmid: 'PARENT1',
     });
   });
+
+  it('uploads with the legacy one-step endpoint and multipart fields', async () => {
+    const message = await makeClient().roomsUpload({
+      roomId: 'GENERAL',
+      bytes: new TextEncoder().encode('hello file'),
+      fileName: 'hello.txt',
+      contentType: 'text/plain',
+      description: 'Build artifact',
+      msg: '🤖 build output',
+      tmid: 'PARENT1',
+    });
+
+    expect(message).toMatchObject({
+      rid: 'GENERAL',
+      msg: '🤖 build output',
+      tmid: 'PARENT1',
+      file: { name: 'hello.txt' },
+    });
+    const request = mock.requests.at(-1)!;
+    expect(request.path).toBe('/api/v1/rooms.upload/GENERAL');
+    expect(request.headers['content-type']).toMatch(/^multipart\/form-data; boundary=/);
+    expect(request.body).toEqual(expect.stringContaining('name="description"'));
+    expect(request.body).toEqual(expect.stringContaining('Build artifact'));
+  });
 });
 
 describe('RocketChatClient — error mapping', () => {
@@ -152,6 +180,31 @@ describe('RocketChatClient — error mapping', () => {
       body: { success: false, error: 'nope', errorType: 'error-not-allowed' },
     });
     await expect(makeClient().subscriptionsGet()).rejects.toBeDefined();
+  });
+
+  it('reports an empty 2xx response as invalid_upstream_response', async () => {
+    const client = makeClient({
+      fetchFn: async () =>
+        new Response('', {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    });
+
+    try {
+      await client.info();
+      throw new Error('expected throw');
+    } catch (error) {
+      expect(normalizeError(error)).toMatchObject({
+        code: 'invalid_upstream_response',
+        retryable: false,
+        details: {
+          operation: 'GET /api/info',
+          issue: 'empty_body',
+          status: 200,
+        },
+      });
+    }
   });
 });
 

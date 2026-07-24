@@ -66,6 +66,11 @@ export interface RcMeResponse {
   success: boolean;
 }
 
+export interface RcInfoResponse {
+  version: string;
+  success: boolean;
+}
+
 /** A message object as returned by chat.* endpoints. */
 export interface RcMessage {
   _id: string;
@@ -76,6 +81,12 @@ export interface RcMessage {
   /** True when the message lives inside an encrypted room. */
   t?: string;
   editedAt?: string;
+  file?: {
+    _id: string;
+    name: string;
+    type: string;
+    size: number;
+  };
 }
 
 export interface RcMessageResponse {

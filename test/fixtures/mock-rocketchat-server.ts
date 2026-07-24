@@ -56,6 +56,7 @@ export interface MockOptions {
   botUsername?: string;
   users?: MockUser[];
   subscriptions?: MockSubscription[];
+  serverVersion?: string;
 }
 
 export class MockRocketChat {
@@ -67,6 +68,7 @@ export class MockRocketChat {
   private msgCounter = 0;
   private fileCounter = 0;
   private readonly uploadedFiles = new Map<string, { roomId: string; name: string }>();
+  serverVersion: string;
 
   users: MockUser[];
   subscriptions: MockSubscription[];
@@ -75,6 +77,7 @@ export class MockRocketChat {
   constructor(private readonly options: MockOptions) {
     this.users = [...(options.users ?? [])];
     this.subscriptions = [...(options.subscriptions ?? [])];
+    this.serverVersion = options.serverVersion ?? '7.0.0';
   }
 
   get baseUrl(): string {
@@ -104,6 +107,7 @@ export class MockRocketChat {
     this.overrides.length = 0;
     this.delayMs = 0;
     this.uploadedFiles.clear();
+    this.serverVersion = this.options.serverVersion ?? '7.0.0';
   }
 
   async start(): Promise<void> {
@@ -177,6 +181,11 @@ export class MockRocketChat {
     body: unknown,
     res: ServerResponse,
   ): void {
+    if (path === '/api/info' && method === 'GET') {
+      this.send(res, 200, { success: true, version: this.serverVersion });
+      return;
+    }
+
     if (path === '/api/v1/me' && method === 'GET') {
       this.send(res, 200, {
         success: true,
@@ -230,6 +239,12 @@ export class MockRocketChat {
     const mediaMatch = path.match(/^\/api\/v1\/rooms\.media\/([^/]+)$/);
     if (mediaMatch && method === 'POST') {
       this.handleMediaUpload(decodeURIComponent(mediaMatch[1]!), body, res);
+      return;
+    }
+
+    const uploadMatch = path.match(/^\/api\/v1\/rooms\.upload\/([^/]+)$/);
+    if (uploadMatch && method === 'POST') {
+      this.handleLegacyUpload(decodeURIComponent(uploadMatch[1]!), body, res);
       return;
     }
 
@@ -304,6 +319,33 @@ export class MockRocketChat {
     });
   }
 
+  private handleLegacyUpload(roomId: string, body: unknown, res: ServerResponse): void {
+    if (typeof body !== 'string' || !body.includes('name="file"')) {
+      this.send(res, 400, {
+        success: false,
+        error: 'File is required',
+        errorType: 'invalid-params',
+      });
+      return;
+    }
+    this.fileCounter += 1;
+    const fileId = `file-${this.fileCounter}`;
+    const fileName = /filename="([^"]+)"/.exec(body)?.[1] ?? 'upload.bin';
+    const message = this.createMessage(
+      roomId,
+      multipartField(body, 'msg') ?? '',
+      undefined,
+      multipartField(body, 'tmid'),
+    );
+    message.file = {
+      _id: fileId,
+      name: fileName,
+      type: 'application/octet-stream',
+      size: 0,
+    };
+    this.send(res, 200, { success: true, message });
+  }
+
   private handleMediaConfirm(
     roomId: string,
     fileId: string,
@@ -370,6 +412,11 @@ function parseTerm(selector: string | undefined): string {
   } catch {
     return '';
   }
+}
+
+function multipartField(body: string, name: string): string | undefined {
+  const pattern = new RegExp(`name="${name}"\\r\\n\\r\\n([^\\r]*)`);
+  return pattern.exec(body)?.[1];
 }
 
 function readBody(req: IncomingMessage): Promise<unknown> {

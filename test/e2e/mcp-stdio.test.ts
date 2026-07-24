@@ -253,6 +253,62 @@ describe('MCP stdio end-to-end', () => {
     expect(text).toBe('✅ Đã tải file artifact.txt lên #General Discussion.');
   });
 
+  it('previews a file when optional fields are omitted', async () => {
+    const mediaRequestsBefore = mock.requests.filter((request) =>
+      request.path.includes('rooms.media'),
+    ).length;
+    const preview = await client.callTool({
+      name: 'rocketchat_preview_file',
+      arguments: {
+        target: { type: 'channel', value: 'general' },
+        filePath: uploadFile,
+      },
+    });
+
+    expect(preview.isError).toBeFalsy();
+    expect(preview.structuredContent).toMatchObject({
+      uploaded: false,
+      preview: true,
+      file: { name: 'artifact.txt' },
+    });
+    expect(mock.requests.filter((request) => request.path.includes('rooms.media')).length).toBe(
+      mediaRequestsBefore,
+    );
+  });
+
+  it('returns actionable upload error details instead of a generic Rocket.Chat error', async () => {
+    mock.enqueueOverride({
+      pathIncludes: '/rooms.media/',
+      status: 200,
+      body: { success: true },
+    });
+
+    const result = await client.callTool({
+      name: 'rocketchat_upload_file',
+      arguments: {
+        target: { type: 'channel', value: 'general' },
+        filePath: uploadFile,
+        dryRun: false,
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    const text = (result.content as { type: string; text: string }[])[0]!.text;
+    expect(JSON.parse(text)).toMatchObject({
+      error: {
+        code: 'unknown_delivery_state',
+        retryable: false,
+        details: {
+          tool: 'rocketchat_upload_file',
+          stage: 'media_upload',
+          causeCode: 'invalid_upstream_response',
+          operation: 'POST /api/v1/rooms.media/:rid',
+          issue: 'missing_required_fields',
+        },
+      },
+    });
+  });
+
   it('confirms a DM send with the recipient display name', async () => {
     const result = await client.callTool({
       name: 'rocketchat_send_message',

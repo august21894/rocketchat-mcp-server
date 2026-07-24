@@ -106,7 +106,10 @@ function auditFields(args: {
     fileName: args.result.file.name,
     fileSize: args.result.file.size,
     ...(args.result.uploaded
-      ? { fileId: args.result.file.id, messageId: args.result.message.id }
+      ? {
+          ...(args.result.file.id !== undefined ? { fileId: args.result.file.id } : {}),
+          messageId: args.result.message.id,
+        }
       : {}),
   };
 }

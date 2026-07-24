@@ -154,9 +154,11 @@ Tool áp dụng room/DM allowlist hiện có, chặn E2EE, kiểm tra
 allowlist. MIME type được suy ra từ phần mở rộng; loại không xác định dùng
 `application/octet-stream`. Tool không nhận URL hoặc base64 làm file source.
 
-Rocket.Chat xử lý upload bằng hai write request (`rooms.media` rồi
-`rooms.mediaConfirm`). MCP không tự retry các request này; trạng thái không chắc
-chắn được trả về dưới dạng `unknown_delivery_state` để tránh upload trùng.
+MCP đọc version từ `/api/info` trước khi ghi để chọn API tương thích. Rocket.Chat
+cũ hơn 6.10 dùng một write request `rooms.upload`; từ 6.10 trở lên dùng hai write
+request (`rooms.media` rồi `rooms.mediaConfirm`). MCP không tự retry các request
+này; trạng thái không chắc chắn được trả về dưới dạng `unknown_delivery_state`
+để tránh upload trùng.
 
 ## Chạy server
 
@@ -210,7 +212,8 @@ tắt upload, chọn một/nhiều file hoặc thư mục, hoặc cho phép mọ
 Bạn cũng có thể sửa `ROCKETCHAT_ALLOWED_UPLOAD_PATHS` thủ công. Trước khi upload,
 agent gọi `rocketchat_preview_file` không cần human approval và hiển thị nguyên văn
 preview, rồi mới gọi `rocketchat_upload_file` với cùng tham số và `dryRun=false`.
-Tool upload dùng API hai bước `rooms.media` + `rooms.mediaConfirm`, chặn E2EE,
+Tool upload tự chọn `rooms.upload` cho Rocket.Chat cũ hơn 6.10 hoặc
+`rooms.media` + `rooms.mediaConfirm` từ 6.10 trở lên. Cả hai flow đều chặn E2EE,
 kiểm tra destination/thread và không tự retry write request.
 
 Wizard tự thêm permission cho bốn tool read-only (`preview_message`,

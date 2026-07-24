@@ -29,11 +29,12 @@ export async function runTool(
     });
     return result;
   } catch (error) {
-    const appError = normalizeError(error);
+    const appError = normalizeError(error, { tool: toolName });
     log.warn('tool.error', {
       durationMs: Date.now() - startedAt,
       code: appError.code,
       retryable: appError.retryable,
+      ...(appError.details !== undefined ? { details: appError.details } : {}),
     });
     return errorResult(appError, ctx.redactor);
   }

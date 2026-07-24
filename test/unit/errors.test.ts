@@ -4,6 +4,7 @@ import {
   RocketChatHttpError,
   RequestTimeoutError,
   NetworkError,
+  RocketChatResponseError,
   mapRocketChatError,
   normalizeError as normalizeRcError,
 } from '../../src/rocketchat/errors.js';
@@ -66,8 +67,28 @@ describe('mapRocketChatError', () => {
 
   it('maps timeouts and network errors', () => {
     expect(mapRocketChatError(new RequestTimeoutError(10000)).code).toBe('request_timeout');
-    expect(mapRocketChatError(new NetworkError('down')).code).toBe('rocketchat_error');
+    expect(mapRocketChatError(new NetworkError('down')).code).toBe('network_error');
     expect(mapRocketChatError(new NetworkError('down')).retryable).toBe(true);
+  });
+
+  it('maps invalid upstream responses with safe operation details', () => {
+    const err = mapRocketChatError(
+      new RocketChatResponseError({
+        operation: 'POST /api/v1/rooms.media/:rid',
+        issue: 'empty_body',
+        status: 200,
+      }),
+    );
+
+    expect(err).toMatchObject({
+      code: 'invalid_upstream_response',
+      retryable: false,
+      details: {
+        operation: 'POST /api/v1/rooms.media/:rid',
+        issue: 'empty_body',
+        status: 200,
+      },
+    });
   });
 
   it('never leaks a token in the mapped payload', () => {
@@ -88,8 +109,17 @@ describe('normalizeError', () => {
     expect(normalizeRcError(original)).toBe(original);
   });
 
-  it('wraps unknown errors as rocketchat_error', () => {
-    expect(toAppError(new Error('weird')).code).toBe('rocketchat_error');
-    expect(normalizeRcError('a string').code).toBe('rocketchat_error');
+  it('wraps unknown errors as internal_error with safe context', () => {
+    expect(toAppError(new Error('weird'))).toMatchObject({
+      code: 'internal_error',
+      details: { exceptionType: 'Error' },
+    });
+    expect(normalizeRcError('a string', { tool: 'rocketchat_upload_file' })).toMatchObject({
+      code: 'internal_error',
+      details: {
+        exceptionType: 'NonErrorThrow',
+        tool: 'rocketchat_upload_file',
+      },
+    });
   });
 });

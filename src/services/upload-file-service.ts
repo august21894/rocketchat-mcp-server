@@ -14,10 +14,10 @@ import type { ResolvedDestination, Target, TargetResolver } from './target-resol
 export interface UploadFileInput {
   target: Target;
   filePath: string;
-  description: string | null;
-  message: string | null;
-  threadMessageId: string | null;
-  dryRun: boolean;
+  description?: string | null;
+  message?: string | null;
+  threadMessageId?: string | null;
+  dryRun?: boolean;
 }
 
 export interface UploadFilePreviewResult {
@@ -33,7 +33,7 @@ export interface UploadedFileResult {
   uploaded: true;
   preview: false;
   destination: DestinationSummary;
-  file: UploadFileSummary & { id: string; url: string };
+  file: UploadFileSummary & { id?: string; url?: string };
   message: { id: string; roomId: string; timestamp: string };
 }
 
@@ -83,7 +83,10 @@ export class UploadFileService {
       contentType: file.contentType,
     };
 
-    if (input.dryRun) {
+    // Treat an omitted dryRun as a preview. Besides matching the public tool
+    // default, this prevents a caller that bypasses schema defaulting from
+    // accidentally creating an external side effect.
+    if (input.dryRun !== false) {
       const result: UploadFilePreviewResult = {
         uploaded: false,
         preview: true,
@@ -95,7 +98,41 @@ export class UploadFileService {
       return result;
     }
 
+    let serverVersion: string;
+    try {
+      serverVersion = (await this.deps.client.info()).version;
+    } catch (error) {
+      throw withStage(normalizeError(error), 'version_detection');
+    }
+
     const bytes = await this.deps.filePolicy.read(file);
+    if (usesLegacyUpload(serverVersion)) {
+      try {
+        const confirmed = await this.deps.client.roomsUpload({
+          roomId: destination.roomId,
+          bytes,
+          fileName: file.name,
+          contentType: file.contentType,
+          ...(description !== undefined ? { description } : {}),
+          ...(renderedMessage !== undefined ? { msg: renderedMessage } : {}),
+          ...(input.threadMessageId ? { tmid: input.threadMessageId } : {}),
+        });
+        const legacyFileId = confirmed.file?._id;
+        return {
+          uploaded: true,
+          preview: false,
+          destination: destinationSummary,
+          file: {
+            ...fileSummary,
+            ...(legacyFileId !== undefined ? { id: legacyFileId } : {}),
+          },
+          message: { id: confirmed._id, roomId: confirmed.rid, timestamp: confirmed.ts },
+        };
+      } catch (error) {
+        throw normalizeWriteError(error, 'legacy_upload');
+      }
+    }
+
     let uploaded: { _id: string; url: string };
     try {
       uploaded = await this.deps.client.roomsMedia({
@@ -151,12 +188,12 @@ export class UploadFileService {
     });
   }
 
-  private normalizeOptional(value: string | null): string | undefined {
-    if (value === null) return undefined;
+  private normalizeOptional(value: string | null | undefined): string | undefined {
+    if (value == null) return undefined;
     return this.deps.contentPolicy.normalize(value);
   }
 
-  private renderOptionalMessage(value: string | null): string | undefined {
+  private renderOptionalMessage(value: string | null | undefined): string | undefined {
     const normalized = this.normalizeOptional(value);
     if (normalized === undefined) return undefined;
     const withoutDuplicateIcon = normalized.replace(/^\s*🤖\uFE0F?\s*/u, '');
@@ -180,21 +217,48 @@ export class UploadFileService {
   }
 }
 
-function normalizeWriteError(error: unknown, stage: 'media_upload' | 'media_confirm'): AppError {
+function normalizeWriteError(
+  error: unknown,
+  stage: 'legacy_upload' | 'media_upload' | 'media_confirm',
+): AppError {
   const appError = normalizeError(error);
   // A timeout/network/5xx on a write can mean Rocket.Chat processed the request
   // but the response was lost. Never invite the caller to retry the whole tool.
   if (
     appError.code === 'request_timeout' ||
+    appError.code === 'network_error' ||
+    appError.code === 'invalid_upstream_response' ||
     (appError.code === 'rocketchat_error' && appError.retryable)
   ) {
+    const details: Record<string, unknown> = {
+      ...(appError.details ?? {}),
+      stage,
+      causeCode: appError.code,
+    };
     return new AppError(
       'unknown_delivery_state',
-      'The Rocket.Chat file-upload state could not be determined; do not retry automatically.',
-      { retryable: false, details: { stage }, cause: error },
+      `The Rocket.Chat file-upload state is unknown after ${stage}; do not retry automatically.`,
+      { retryable: false, details, cause: error },
     );
   }
-  return appError;
+  return withStage(appError, stage);
+}
+
+function withStage(error: AppError, stage: string): AppError {
+  return new AppError(error.code, error.message, {
+    retryable: error.retryable,
+    ...(error.retryAfterMs !== undefined ? { retryAfterMs: error.retryAfterMs } : {}),
+    details: { ...(error.details ?? {}), stage },
+    cause: error.cause,
+  });
+}
+
+export function usesLegacyUpload(serverVersion: string): boolean {
+  const match = /^(\d+)\.(\d+)/.exec(serverVersion.trim());
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  return major < 6 || (major === 6 && minor < 10);
 }
 
 function summarizeDestination(destination: ResolvedDestination): DestinationSummary {

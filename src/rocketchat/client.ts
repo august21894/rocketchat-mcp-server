@@ -12,11 +12,17 @@
  */
 import type { Logger } from '../observability/logger.js';
 import { ENDPOINTS, buildAutocompleteSelector } from './endpoints.js';
-import { NetworkError, RequestTimeoutError, RocketChatHttpError } from './errors.js';
+import {
+  NetworkError,
+  RequestTimeoutError,
+  RocketChatHttpError,
+  RocketChatResponseError,
+} from './errors.js';
 import { parseRateLimit, type RateLimitInfo } from './rate-limit.js';
 import type {
   RcAutocompleteResponse,
   RcAutocompleteUser,
+  RcInfoResponse,
   RcMeResponse,
   RcMediaConfirmPayload,
   RcMediaUploadResponse,
@@ -79,9 +85,22 @@ export class RocketChatClient {
 
   // --- Public typed endpoints -------------------------------------------------
 
+  /** `GET /api/info` — server version used for upload API compatibility. */
+  async info(): Promise<RcInfoResponse> {
+    const res = await this.request<RcInfoResponse>({ method: 'GET', path: ENDPOINTS.info });
+    if (!res || typeof res.version !== 'string') {
+      throw invalidResponse('GET /api/info');
+    }
+    return res;
+  }
+
   /** `GET /api/v1/me` — authenticated identity. */
   async me(): Promise<RcMeResponse> {
-    return this.request<RcMeResponse>({ method: 'GET', path: ENDPOINTS.me });
+    const res = await this.request<RcMeResponse>({ method: 'GET', path: ENDPOINTS.me });
+    if (!res || typeof res._id !== 'string' || typeof res.username !== 'string') {
+      throw invalidResponse('GET /api/v1/me');
+    }
+    return res;
   }
 
   /** `GET /api/v1/users.autocomplete` — search users by term (no Mongo query). */
@@ -110,7 +129,7 @@ export class RocketChatClient {
       path: ENDPOINTS.chatPostMessage,
       body: payload,
     });
-    return res.message;
+    return requireMessage(res, 'POST /api/v1/chat.postMessage');
   }
 
   /** `POST /api/v1/chat.sendMessage` — send by roomId with an optional stable _id. */
@@ -120,7 +139,7 @@ export class RocketChatClient {
       path: ENDPOINTS.chatSendMessage,
       body: payload,
     });
-    return res.message;
+    return requireMessage(res, 'POST /api/v1/chat.sendMessage');
   }
 
   /** `GET /api/v1/chat.getMessage` — fetch a single message by id. */
@@ -130,7 +149,7 @@ export class RocketChatClient {
       path: ENDPOINTS.chatGetMessage,
       query: { msgId },
     });
-    return res.message;
+    return requireMessage(res, 'GET /api/v1/chat.getMessage');
   }
 
   /** `POST /api/v1/rooms.media/:rid` — upload bytes without sending them yet. */
@@ -140,17 +159,15 @@ export class RocketChatClient {
     fileName: string;
     contentType: string;
   }): Promise<RcMediaUploadResponse['file']> {
-    const formData = new FormData();
-    // Copy into an ArrayBuffer-backed view accepted by Blob on every supported
-    // Node version, including when the source is a pooled Buffer.
-    const bytes = new Uint8Array(args.bytes.byteLength);
-    bytes.set(args.bytes);
-    formData.append('file', new Blob([bytes], { type: args.contentType }), args.fileName);
+    const formData = buildFileFormData(args);
     const res = await this.request<RcMediaUploadResponse>({
       method: 'POST',
       path: ENDPOINTS.roomsMedia(args.roomId),
       formData,
     });
+    if (!res?.file || typeof res.file._id !== 'string' || typeof res.file.url !== 'string') {
+      throw invalidResponse('POST /api/v1/rooms.media/:rid');
+    }
     return res.file;
   }
 
@@ -165,6 +182,40 @@ export class RocketChatClient {
       path: ENDPOINTS.roomsMediaConfirm(roomId, fileId),
       body: payload,
     });
+    return requireMessage(res, 'POST /api/v1/rooms.mediaConfirm/:rid/:fileId');
+  }
+
+  /**
+   * `POST /api/v1/rooms.upload/:rid` — legacy one-step upload used by
+   * Rocket.Chat releases older than 6.10.
+   */
+  async roomsUpload(args: {
+    roomId: string;
+    bytes: Uint8Array;
+    fileName: string;
+    contentType: string;
+    description?: string;
+    msg?: string;
+    tmid?: string;
+  }): Promise<RcMessage> {
+    const formData = buildFileFormData(args);
+    if (args.description !== undefined) formData.append('description', args.description);
+    if (args.msg !== undefined) formData.append('msg', args.msg);
+    if (args.tmid !== undefined) formData.append('tmid', args.tmid);
+
+    const res = await this.request<RcMessageResponse>({
+      method: 'POST',
+      path: ENDPOINTS.roomsUpload(args.roomId),
+      formData,
+    });
+    if (
+      !res?.message ||
+      typeof res.message._id !== 'string' ||
+      typeof res.message.rid !== 'string' ||
+      typeof res.message.ts !== 'string'
+    ) {
+      throw invalidResponse('POST /api/v1/rooms.upload/:rid');
+    }
     return res.message;
   }
 
@@ -207,6 +258,7 @@ export class RocketChatClient {
 
   private async executeOnce<T>(options: RequestOptions, attempt: number): Promise<T> {
     const url = this.buildUrl(options.path, options.query);
+    const operation = `${options.method} ${options.path}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     const startedAt = this.now();
@@ -235,9 +287,9 @@ export class RocketChatClient {
       response = await this.fetchFn(url, init);
     } catch (error) {
       if (isAbortError(error)) {
-        throw new RequestTimeoutError(this.timeoutMs);
+        throw new RequestTimeoutError(this.timeoutMs, operation);
       }
-      throw new NetworkError('Network request failed', { cause: error });
+      throw new NetworkError('Network request failed', { cause: error, operation });
     } finally {
       clearTimeout(timer);
     }
@@ -263,6 +315,15 @@ export class RocketChatClient {
         status: response.status,
         ...extractUpstreamError(parsed),
         rateLimit,
+        operation,
+      });
+    }
+
+    if (parsed === undefined) {
+      throw new RocketChatResponseError({
+        operation,
+        status: response.status,
+        issue: bodyText.trim() === '' ? 'empty_body' : 'invalid_json',
       });
     }
 
@@ -272,6 +333,7 @@ export class RocketChatClient {
         status: response.status,
         ...extractUpstreamError(parsed),
         rateLimit,
+        operation,
       });
     }
 
@@ -328,6 +390,39 @@ function safeParseJson(text: string): unknown {
   } catch {
     return undefined;
   }
+}
+
+function invalidResponse(operation: string): RocketChatResponseError {
+  return new RocketChatResponseError({
+    operation,
+    issue: 'missing_required_fields',
+  });
+}
+
+function requireMessage(response: RcMessageResponse, operation: string): RcMessage {
+  if (
+    !response?.message ||
+    typeof response.message._id !== 'string' ||
+    typeof response.message.rid !== 'string' ||
+    typeof response.message.ts !== 'string'
+  ) {
+    throw invalidResponse(operation);
+  }
+  return response.message;
+}
+
+function buildFileFormData(args: {
+  bytes: Uint8Array;
+  fileName: string;
+  contentType: string;
+}): FormData {
+  const formData = new FormData();
+  // Copy into an ArrayBuffer-backed view accepted by Blob on every supported
+  // Node version, including when the source is a pooled Buffer.
+  const bytes = new Uint8Array(args.bytes.byteLength);
+  bytes.set(args.bytes);
+  formData.append('file', new Blob([bytes], { type: args.contentType }), args.fileName);
+  return formData;
 }
 
 function sleep(ms: number): Promise<void> {

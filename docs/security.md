@@ -54,9 +54,11 @@ Tài liệu này mô tả các kiểm soát bảo mật của MCP Server và gi�
 - File source chỉ là local path, không nhận URL và không tự download nội dung mạng.
 - MCP resolve symlink/real path trước khi so khớp allowlist, chỉ đọc regular file và
   kiểm tra `ROCKETCHAT_MAX_UPLOAD_BYTES` trước khi tạo request.
-- Upload dùng hai write request (`rooms.media` rồi `rooms.mediaConfirm`) và không tự
-  retry. Nếu confirm lỗi, Rocket.Chat có thể còn một media record chưa gắn message;
-  operator cần dọn theo policy/version của workspace.
+- Upload đọc `/api/info` để chọn API theo version: Rocket.Chat cũ hơn 6.10 dùng
+  `rooms.upload`; từ 6.10 trở lên dùng `rooms.media` rồi `rooms.mediaConfirm`.
+  Write request không tự retry. Nếu confirm của flow hai bước lỗi, Rocket.Chat có
+  thể còn một media record chưa gắn message; operator cần dọn theo policy/version
+  của workspace.
 - Timeout/network/5xx trong write trả `unknown_delivery_state` không retryable để
   agent không tự chạy lại toàn bộ upload khi trạng thái upstream chưa rõ.
 - E2EE room bị từ chối; target vẫn qua room/DM allowlist hiện có.
@@ -73,6 +75,10 @@ Tài liệu này mô tả các kiểm soát bảo mật của MCP Server và gi�
 - Audit log của `upload_file` chỉ ghi target type, room id, tên/kích thước file,
   file/message id; không ghi full local path hoặc nội dung file.
 - Payload trả cho MCP client đi qua redaction pass cuối cùng.
+- Lỗi response upstream được phân loại thành `network_error`,
+  `invalid_upstream_response` hoặc `rocketchat_error`; lỗi code/runtime không bị
+  gắn nhầm thành lỗi Rocket.Chat mà trả `internal_error`. Chỉ `operation`, `stage`,
+  status và loại exception an toàn được expose; raw stack/cause vẫn chỉ giữ nội bộ.
 
 ## 5. Prompt injection (khi mở rộng đọc history/realtime — Phase 5)
 

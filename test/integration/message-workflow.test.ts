@@ -114,6 +114,23 @@ describe('read tools', () => {
 });
 
 describe('upload file', () => {
+  it('previews safely when optional fields and dryRun are omitted', async () => {
+    const preview = await ctxWith().uploadFileService.upload({
+      target: { type: 'channel', value: 'general' },
+      filePath: uploadFile,
+    });
+
+    expect(preview).toMatchObject({
+      uploaded: false,
+      preview: true,
+      destination: { roomId: 'GENERAL' },
+      file: { name: 'report.txt', contentType: 'text/plain' },
+    });
+    expect(preview).not.toHaveProperty('description');
+    expect(preview).not.toHaveProperty('renderedMessage');
+    expect(mock.requests.filter((request) => request.path.includes('rooms.media'))).toHaveLength(0);
+  });
+
   it('previews without uploading, then uploads and confirms the file', async () => {
     const ctx = ctxWith();
     const input = {
@@ -150,6 +167,29 @@ describe('upload file', () => {
       description: 'Build artifact',
       msg: '🤖 Build completed',
     });
+  });
+
+  it('uses the one-step upload endpoint on Rocket.Chat older than 6.10', async () => {
+    mock.serverVersion = '3.13.2';
+    const uploaded = await ctxWith().uploadFileService.upload({
+      target: { type: 'channel', value: 'general' },
+      filePath: uploadFile,
+      description: 'Legacy artifact',
+      message: 'Legacy build',
+      threadMessageId: null,
+      dryRun: false,
+    });
+
+    expect(uploaded).toMatchObject({
+      uploaded: true,
+      destination: { roomId: 'GENERAL' },
+      file: { name: 'report.txt', id: expect.any(String) },
+      message: { roomId: 'GENERAL' },
+    });
+    expect(mock.requests.filter((request) => request.path.includes('rooms.upload'))).toHaveLength(
+      1,
+    );
+    expect(mock.requests.filter((request) => request.path.includes('rooms.media'))).toHaveLength(0);
   });
 
   it('enforces file, destination, E2EE, and thread policies before upload', async () => {
@@ -209,6 +249,31 @@ describe('upload file', () => {
       details: { stage: 'media_confirm' },
     });
     expect(mock.requests.filter((request) => request.path.includes('rooms.media'))).toHaveLength(2);
+  });
+
+  it('reports the upload stage and cause when a write response is invalid', async () => {
+    mock.enqueueOverride({
+      pathIncludes: '/rooms.media/',
+      status: 200,
+      body: { success: true },
+    });
+
+    await expect(
+      ctxWith().uploadFileService.upload({
+        target: { type: 'channel', value: 'general' },
+        filePath: uploadFile,
+        dryRun: false,
+      }),
+    ).rejects.toMatchObject({
+      code: 'unknown_delivery_state',
+      retryable: false,
+      details: {
+        stage: 'media_upload',
+        causeCode: 'invalid_upstream_response',
+        operation: 'POST /api/v1/rooms.media/:rid',
+        issue: 'missing_required_fields',
+      },
+    });
   });
 });
 

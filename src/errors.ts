@@ -18,9 +18,12 @@ export const ERROR_CODES = [
   'encrypted_room_not_supported',
   'rate_limited',
   'request_timeout',
+  'network_error',
+  'invalid_upstream_response',
   'duplicate_request',
   'unknown_delivery_state',
   'rocketchat_error',
+  'internal_error',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
@@ -94,15 +97,30 @@ export function isAppError(value: unknown): value is AppError {
 
 /**
  * Coerce any thrown value into an {@link AppError}. Unknown errors are mapped to
- * a generic `rocketchat_error` without leaking their message content, since we
- * cannot guarantee an arbitrary error string is free of secrets.
+ * `internal_error` without leaking their message content, since we cannot
+ * guarantee an arbitrary error string is free of secrets.
  */
 export function toAppError(value: unknown): AppError {
   if (isAppError(value)) {
     return value;
   }
-  return new AppError('rocketchat_error', 'An unexpected error occurred.', {
+  return new AppError('internal_error', 'An unexpected internal error occurred.', {
     retryable: false,
+    details: { exceptionType: safeExceptionType(value) },
     cause: value,
   });
+}
+
+export function safeExceptionType(value: unknown): string {
+  if (!(value instanceof Error)) return 'NonErrorThrow';
+  const safeNames = new Set([
+    'Error',
+    'TypeError',
+    'RangeError',
+    'ReferenceError',
+    'SyntaxError',
+    'URIError',
+    'AggregateError',
+  ]);
+  return safeNames.has(value.name) ? value.name : 'Error';
 }

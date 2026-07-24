@@ -1,7 +1,7 @@
 /**
  * Rocket.Chat HTTP error handling and mapping to the internal error model.
  */
-import { AppError, isAppError, type ErrorCode } from '../errors.js';
+import { AppError, isAppError, safeExceptionType, type ErrorCode } from '../errors.js';
 import type { RateLimitInfo } from './rate-limit.js';
 
 /**
@@ -13,12 +13,14 @@ export class RocketChatHttpError extends Error {
   readonly upstreamError: string | undefined;
   readonly errorType: string | undefined;
   readonly rateLimit: RateLimitInfo | undefined;
+  readonly operation: string | undefined;
 
   constructor(args: {
     status: number;
     upstreamError?: string;
     errorType?: string;
     rateLimit?: RateLimitInfo;
+    operation?: string;
   }) {
     super(`Rocket.Chat responded with HTTP ${args.status}`);
     this.name = 'RocketChatHttpError';
@@ -26,25 +28,53 @@ export class RocketChatHttpError extends Error {
     this.upstreamError = args.upstreamError;
     this.errorType = args.errorType;
     this.rateLimit = args.rateLimit;
+    this.operation = args.operation;
   }
 }
 
 /** Raised when a request exceeds the configured timeout. */
 export class RequestTimeoutError extends Error {
   readonly timeoutMs: number;
-  constructor(timeoutMs: number) {
+  readonly operation: string | undefined;
+  constructor(timeoutMs: number, operation?: string) {
     super(`Request timed out after ${timeoutMs}ms`);
     this.name = 'RequestTimeoutError';
     this.timeoutMs = timeoutMs;
+    this.operation = operation;
   }
 }
 
 /** Raised on a transport/network failure (DNS, connection reset, etc.). */
 export class NetworkError extends Error {
-  constructor(message: string, options?: { cause?: unknown }) {
+  readonly operation: string | undefined;
+  constructor(message: string, options?: { cause?: unknown; operation?: string }) {
     super(message, options);
     this.name = 'NetworkError';
+    this.operation = options?.operation;
   }
+}
+
+/** Raised when a successful HTTP response violates the expected API contract. */
+export class RocketChatResponseError extends Error {
+  readonly operation: string;
+  readonly issue: 'empty_body' | 'invalid_json' | 'missing_required_fields';
+  readonly status: number | undefined;
+
+  constructor(args: {
+    operation: string;
+    issue: 'empty_body' | 'invalid_json' | 'missing_required_fields';
+    status?: number;
+  }) {
+    super(`Rocket.Chat returned an invalid response for ${args.operation}`);
+    this.name = 'RocketChatResponseError';
+    this.operation = args.operation;
+    this.issue = args.issue;
+    this.status = args.status;
+  }
+}
+
+export interface ErrorContext {
+  tool?: string;
 }
 
 /** RC `errorType` values that map to a more specific internal code. */
@@ -66,18 +96,23 @@ function truncate(value: string, max = 300): string {
  * Convert any error thrown by the client into a sanitized {@link AppError}.
  * The resulting message/details are safe to hand to the model.
  */
-export function mapRocketChatError(error: unknown): AppError {
+export function mapRocketChatError(error: unknown, context: ErrorContext = {}): AppError {
   if (error instanceof RequestTimeoutError) {
+    const details: Record<string, unknown> = { timeoutMs: error.timeoutMs };
+    if (error.operation) details.operation = error.operation;
     return new AppError('request_timeout', 'The Rocket.Chat request timed out.', {
       retryable: true,
-      details: { timeoutMs: error.timeoutMs },
+      details,
       cause: error,
     });
   }
 
   if (error instanceof NetworkError) {
-    return new AppError('rocketchat_error', 'Could not reach the Rocket.Chat server.', {
+    const details: Record<string, unknown> = {};
+    if (error.operation) details.operation = error.operation;
+    return new AppError('network_error', 'Could not reach the Rocket.Chat server.', {
       retryable: true,
+      ...(Object.keys(details).length > 0 ? { details } : {}),
       cause: error,
     });
   }
@@ -86,8 +121,30 @@ export function mapRocketChatError(error: unknown): AppError {
     return mapHttpError(error);
   }
 
-  return new AppError('rocketchat_error', 'An unexpected Rocket.Chat error occurred.', {
+  if (error instanceof RocketChatResponseError) {
+    const details: Record<string, unknown> = {
+      operation: error.operation,
+      issue: error.issue,
+    };
+    if (error.status !== undefined) details.status = error.status;
+    return new AppError(
+      'invalid_upstream_response',
+      `Rocket.Chat returned an invalid response for ${error.operation}.`,
+      {
+        retryable: false,
+        details,
+        cause: error,
+      },
+    );
+  }
+
+  const details: Record<string, unknown> = {
+    exceptionType: safeExceptionType(error),
+  };
+  if (context.tool) details.tool = context.tool;
+  return new AppError('internal_error', 'An unexpected internal error occurred.', {
     retryable: false,
+    details,
     cause: error,
   });
 }
@@ -95,15 +152,24 @@ export function mapRocketChatError(error: unknown): AppError {
 /**
  * Normalize ANY thrown value into a sanitized {@link AppError}. Existing
  * AppErrors pass through unchanged; Rocket.Chat/network/timeout errors are
- * mapped; everything else becomes a generic `rocketchat_error`.
+ * mapped; everything else becomes a sanitized `internal_error`.
  */
-export function normalizeError(error: unknown): AppError {
-  if (isAppError(error)) return error;
-  return mapRocketChatError(error);
+export function normalizeError(error: unknown, context: ErrorContext = {}): AppError {
+  if (isAppError(error)) {
+    if (!context.tool || error.details?.tool !== undefined) return error;
+    return new AppError(error.code, error.message, {
+      retryable: error.retryable,
+      ...(error.retryAfterMs !== undefined ? { retryAfterMs: error.retryAfterMs } : {}),
+      details: { ...(error.details ?? {}), tool: context.tool },
+      cause: error.cause,
+    });
+  }
+  return mapRocketChatError(error, context);
 }
 
 function mapHttpError(error: RocketChatHttpError): AppError {
   const details: Record<string, unknown> = { status: error.status };
+  if (error.operation) details.operation = error.operation;
   if (error.errorType) details.errorType = error.errorType;
   if (error.upstreamError) details.upstream = truncate(error.upstreamError);
 

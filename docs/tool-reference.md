@@ -207,7 +207,7 @@ người dùng duyệt trước. Workflow dành cho agent phải gọi
 
 Read-only step bắt buộc trước khi upload file. Tool resolve destination, kiểm tra
 path allowlist, metadata/kích thước file, E2EE và thread rồi trả preview; không gọi
-`rooms.media` hoặc `rooms.mediaConfirm`.
+bất kỳ endpoint upload nào.
 
 **Input:** giống các field nội dung của `rocketchat_upload_file`, không có `dryRun`.
 
@@ -236,9 +236,14 @@ Code nên preview không cần human approval.
 
 ## `rocketchat_upload_file`
 
-Upload đúng một file local vào đúng một destination. Rocket.Chat hiện dùng quy
-trình hai bước: MCP gọi `POST /api/v1/rooms.media/:rid` bằng multipart, sau đó gọi
-`POST /api/v1/rooms.mediaConfirm/:rid/:fileId` để tạo message chứa file.
+Upload đúng một file local vào đúng một destination. MCP đọc `/api/info` và chọn
+flow tương thích:
+
+- Rocket.Chat cũ hơn 6.10: gọi một bước
+  `POST /api/v1/rooms.upload/:rid` bằng multipart.
+- Rocket.Chat từ 6.10 trở lên: gọi `POST /api/v1/rooms.media/:rid` bằng multipart,
+  sau đó gọi `POST /api/v1/rooms.mediaConfirm/:rid/:fileId` để tạo message chứa
+  file.
 
 **Input:**
 
@@ -316,21 +321,26 @@ Error payload:
 }
 ```
 
-| Code                           | Ý nghĩa                                    | Retryable |
-| ------------------------------ | ------------------------------------------ | --------- |
-| `invalid_input`                | Input sai schema/policy nội dung           | Không     |
-| `authentication_failed`        | Token/user id không hợp lệ (401)           | Không     |
-| `permission_denied`            | Bot thiếu quyền (403)                      | Không     |
-| `destination_not_allowed`      | Đích ngoài allowlist                       | Không     |
-| `destination_not_found`        | Không tìm thấy user/room (404)             | Không     |
-| `ambiguous_destination`        | Nhiều đích cùng khớp                       | Không     |
-| `mention_not_allowed`          | Mention bị policy chặn                     | Không     |
-| `thread_room_mismatch`         | Thread message không thuộc room đích       | Không     |
-| `encrypted_room_not_supported` | Room đang dùng E2EE                        | Không     |
-| `rate_limited`                 | HTTP 429, kèm `retryAfterMs`               | Có        |
-| `request_timeout`              | Vượt timeout                               | Có        |
-| `duplicate_request`            | Idempotency key đang xử lý                 | Không     |
-| `unknown_delivery_state`       | Không xác định được đã gửi hay chưa        | Không     |
-| `rocketchat_error`             | Lỗi upstream đã sanitize (5xx → retryable) | Tùy       |
+| Code                           | Ý nghĩa                                     | Retryable |
+| ------------------------------ | ------------------------------------------- | --------- |
+| `invalid_input`                | Input sai schema/policy nội dung            | Không     |
+| `authentication_failed`        | Token/user id không hợp lệ (401)            | Không     |
+| `permission_denied`            | Bot thiếu quyền (403)                       | Không     |
+| `destination_not_allowed`      | Đích ngoài allowlist                        | Không     |
+| `destination_not_found`        | Không tìm thấy user/room (404)              | Không     |
+| `ambiguous_destination`        | Nhiều đích cùng khớp                        | Không     |
+| `mention_not_allowed`          | Mention bị policy chặn                      | Không     |
+| `thread_room_mismatch`         | Thread message không thuộc room đích        | Không     |
+| `encrypted_room_not_supported` | Room đang dùng E2EE                         | Không     |
+| `rate_limited`                 | HTTP 429, kèm `retryAfterMs`                | Có        |
+| `request_timeout`              | Vượt timeout                                | Có        |
+| `network_error`                | Không kết nối được tới Rocket.Chat          | Có        |
+| `invalid_upstream_response`    | Response rỗng/sai JSON/thiếu field bắt buộc | Không     |
+| `duplicate_request`            | Idempotency key đang xử lý                  | Không     |
+| `unknown_delivery_state`       | Không xác định được đã gửi hay chưa         | Không     |
+| `rocketchat_error`             | Lỗi upstream đã sanitize (5xx → retryable)  | Tùy       |
+| `internal_error`               | Exception nội bộ đã sanitize                | Không     |
 
-Error trả cho model không chứa token, header hay raw stack trace.
+Error trả cho model không chứa token, header hay raw stack trace. Lỗi response
+chứa `details.operation`, `details.issue` và `details.status` khi có. Lỗi write
+không chắc trạng thái chứa thêm `details.stage` và `details.causeCode`.

@@ -3,6 +3,7 @@
  * the single place that knows upstream URLs.
  */
 export const ENDPOINTS = {
+  info: '/api/info',
   me: '/api/v1/me',
   usersAutocomplete: '/api/v1/users.autocomplete',
   subscriptionsGet: '/api/v1/subscriptions.get',
@@ -12,6 +13,7 @@ export const ENDPOINTS = {
   roomsMedia: (roomId: string) => `/api/v1/rooms.media/${encodeURIComponent(roomId)}`,
   roomsMediaConfirm: (roomId: string, fileId: string) =>
     `/api/v1/rooms.mediaConfirm/${encodeURIComponent(roomId)}/${encodeURIComponent(fileId)}`,
+  roomsUpload: (roomId: string) => `/api/v1/rooms.upload/${encodeURIComponent(roomId)}`,
 } as const;
 
 /**
