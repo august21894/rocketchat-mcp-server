@@ -17,6 +17,8 @@ import { RoomService } from './services/room-service.js';
 import { TargetResolver } from './services/target-resolver.js';
 import { IdempotencyService } from './services/idempotency-service.js';
 import { MessageService } from './services/message-service.js';
+import { FilePolicy } from './policies/file-policy.js';
+import { UploadFileService } from './services/upload-file-service.js';
 
 export interface AppContext {
   config: AppConfig;
@@ -29,6 +31,8 @@ export interface AppContext {
   targetResolver: TargetResolver;
   idempotencyService: IdempotencyService;
   messageService: MessageService;
+  filePolicy: FilePolicy;
+  uploadFileService: UploadFileService;
   destinationPolicy: DestinationPolicy;
   mentionPolicy: MentionPolicy;
   contentPolicy: ContentPolicy;
@@ -60,6 +64,7 @@ export function createContext(config: AppConfig, options: CreateContextOptions =
   const destinationPolicy = new DestinationPolicy(config);
   const mentionPolicy = new MentionPolicy(config);
   const contentPolicy = new ContentPolicy(config);
+  const filePolicy = new FilePolicy(config);
 
   const connectionService = new ConnectionService(client);
   const userService = new UserService(client);
@@ -77,6 +82,14 @@ export function createContext(config: AppConfig, options: CreateContextOptions =
     logger,
     disableUrlPreview: config.disableUrlPreview,
   });
+  const uploadFileService = new UploadFileService({
+    client,
+    resolver: targetResolver,
+    destinationPolicy,
+    filePolicy,
+    contentPolicy,
+    mentionPolicy,
+  });
 
   return {
     config,
@@ -89,6 +102,8 @@ export function createContext(config: AppConfig, options: CreateContextOptions =
     targetResolver,
     idempotencyService,
     messageService,
+    filePolicy,
+    uploadFileService,
     destinationPolicy,
     mentionPolicy,
     contentPolicy,

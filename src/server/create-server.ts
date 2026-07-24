@@ -8,6 +8,8 @@ import { registerSearchUsersTool } from '../tools/search-users.js';
 import { registerListRoomsTool } from '../tools/list-rooms.js';
 import { registerPreviewMessageTool } from '../tools/preview-message.js';
 import { registerSendMessageTool } from '../tools/send-message.js';
+import { registerUploadFileTool } from '../tools/upload-file.js';
+import { registerPreviewFileTool } from '../tools/preview-file.js';
 
 export const SERVER_NAME = 'rocketchat-mcp-server';
 export const SERVER_VERSION = '0.1.0';
@@ -39,7 +41,13 @@ export function createServer(ctx: AppContext): McpServer {
         `something to ${workspace} or to the configured Rocket.Chat workspace. ` +
         `A clear user request to send with one resolved destination and message text is approval; ` +
         `do not ask for another conversational confirmation between preview and the MCP client's ` +
-        `approval controls.`,
+        `approval controls. For every file upload, always call rocketchat_preview_file first with ` +
+        `the final destination, local file path and optional message details. This preview tool is ` +
+        `read-only and should not require human approval. Copy its ENTIRE previewText field ` +
+        `verbatim into the assistant response. Only after displaying that complete preview, call ` +
+        `rocketchat_upload_file with the same file details and dryRun=false so the MCP client can ` +
+        `show approval controls. If the user asked only for a file preview, stop after ` +
+        `rocketchat_preview_file.`,
     },
   );
 
@@ -48,6 +56,8 @@ export function createServer(ctx: AppContext): McpServer {
   registerListRoomsTool(server, ctx);
   registerPreviewMessageTool(server, ctx);
   registerSendMessageTool(server, ctx);
+  registerPreviewFileTool(server, ctx);
+  registerUploadFileTool(server, ctx);
 
   return server;
 }

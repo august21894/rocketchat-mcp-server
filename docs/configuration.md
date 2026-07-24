@@ -24,22 +24,24 @@ từ hệ thống trước nếu có.
 
 ## Bảng biến môi trường
 
-| Biến                             | Bắt buộc | Mặc định                         | Ý nghĩa                                                                                      |
-| -------------------------------- | -------- | -------------------------------- | -------------------------------------------------------------------------------------------- |
-| `ROCKETCHAT_BASE_URL`            | ✅       | —                                | URL workspace. HTTPS bắt buộc, trừ `localhost`/`127.0.0.1`/`::1`. Trailing slash bị loại bỏ. |
-| `ROCKETCHAT_USER_ID`             | ✅       | —                                | User id của bot (`X-User-Id`).                                                               |
-| `ROCKETCHAT_AUTH_TOKEN`          | ✅       | —                                | Personal Access Token của bot (`X-Auth-Token`).                                              |
-| `ROCKETCHAT_WORKSPACE_NAME`      | —        | hostname của Base URL            | Tên workspace dùng trong MCP instructions và mô tả tools, ví dụ `Facon`.                     |
-| `ROCKETCHAT_ALLOWED_ROOMS`       | —        | _(trống = allow-any room)_       | Danh sách tên và/hoặc id room, ngăn cách bằng dấu phẩy.                                      |
-| `ROCKETCHAT_ALLOW_DM`            | —        | `true`                           | Công tắc tổng cho direct message.                                                            |
-| `ROCKETCHAT_ALLOWED_DM_USERS`    | —        | _(trống = allow-any khi DM bật)_ | Danh sách username được phép nhận DM.                                                        |
-| `ROCKETCHAT_ALLOW_HERE_MENTION`  | —        | `true`                           | Cho phép `@here`.                                                                            |
-| `ROCKETCHAT_ALLOW_ALL_MENTION`   | —        | `true`                           | Cho phép `@all`.                                                                             |
-| `ROCKETCHAT_MAX_TEXT_LENGTH`     | —        | `10000`                          | Độ dài tối đa của text (1–40000).                                                            |
-| `ROCKETCHAT_REQUEST_TIMEOUT_MS`  | —        | `10000`                          | Timeout mỗi request (1000–120000).                                                           |
-| `ROCKETCHAT_DISABLE_URL_PREVIEW` | —        | `true`                           | Tắt URL preview (`parseUrls=false`).                                                         |
-| `MCP_TRANSPORT`                  | —        | `stdio`                          | Chỉ hỗ trợ `stdio` trong MVP.                                                                |
-| `LOG_LEVEL`                      | —        | `info`                           | `debug` \| `info` \| `warn` \| `error`.                                                      |
+| Biến                              | Bắt buộc | Mặc định                         | Ý nghĩa                                                                                      |
+| --------------------------------- | -------- | -------------------------------- | -------------------------------------------------------------------------------------------- |
+| `ROCKETCHAT_BASE_URL`             | ✅       | —                                | URL workspace. HTTPS bắt buộc, trừ `localhost`/`127.0.0.1`/`::1`. Trailing slash bị loại bỏ. |
+| `ROCKETCHAT_USER_ID`              | ✅       | —                                | User id của bot (`X-User-Id`).                                                               |
+| `ROCKETCHAT_AUTH_TOKEN`           | ✅       | —                                | Personal Access Token của bot (`X-Auth-Token`).                                              |
+| `ROCKETCHAT_WORKSPACE_NAME`       | —        | hostname của Base URL            | Tên workspace dùng trong MCP instructions và mô tả tools, ví dụ `Facon`.                     |
+| `ROCKETCHAT_ALLOWED_ROOMS`        | —        | _(trống = allow-any room)_       | Danh sách tên và/hoặc id room, ngăn cách bằng dấu phẩy.                                      |
+| `ROCKETCHAT_ALLOW_DM`             | —        | `true`                           | Công tắc tổng cho direct message.                                                            |
+| `ROCKETCHAT_ALLOWED_DM_USERS`     | —        | _(trống = allow-any khi DM bật)_ | Danh sách username được phép nhận DM.                                                        |
+| `ROCKETCHAT_ALLOW_HERE_MENTION`   | —        | `true`                           | Cho phép `@here`.                                                                            |
+| `ROCKETCHAT_ALLOW_ALL_MENTION`    | —        | `true`                           | Cho phép `@all`.                                                                             |
+| `ROCKETCHAT_MAX_TEXT_LENGTH`      | —        | `10000`                          | Độ dài tối đa của text (1–40000).                                                            |
+| `ROCKETCHAT_REQUEST_TIMEOUT_MS`   | —        | `10000`                          | Timeout mỗi request (1000–120000).                                                           |
+| `ROCKETCHAT_DISABLE_URL_PREVIEW`  | —        | `true`                           | Tắt URL preview (`parseUrls=false`).                                                         |
+| `ROCKETCHAT_ALLOWED_UPLOAD_PATHS` | —        | _(trống = tắt upload)_           | File/thư mục local được phép đọc để upload, ngăn cách bằng dấu phẩy.                         |
+| `ROCKETCHAT_MAX_UPLOAD_BYTES`     | —        | `26214400` (25 MiB)              | Kích thước file tối đa phía MCP (1 byte–1 GiB). Rocket.Chat có thể đặt giới hạn thấp hơn.    |
+| `MCP_TRANSPORT`                   | —        | `stdio`                          | Chỉ hỗ trợ `stdio` trong MVP.                                                                |
+| `LOG_LEVEL`                       | —        | `info`                           | `debug` \| `info` \| `warn` \| `error`.                                                      |
 
 ### Giá trị boolean
 
@@ -61,6 +63,26 @@ Giá trị rỗng dùng mặc định. Giá trị khác → lỗi cấu hình.
    khi bật, danh sách recipient trống nghĩa là **cho phép mọi người**.
 8. **Default hiện tại nới lỏng** (đồng bộ với `.env` mẫu): `ALLOW_DM`, `@here`, `@all`
    đều **bật** khi không set. Set `false` tường minh nếu muốn siết.
+9. **Upload local mặc định bị tắt**: `ROCKETCHAT_ALLOWED_UPLOAD_PATHS` trống khiến
+   mọi lệnh `rocketchat_upload_file` bị từ chối. Mỗi path có thể là một thư mục
+   (cho phép file con) hoặc đúng một file. Symlink được resolve về real path trước
+   khi kiểm tra để không thoát khỏi allowlist.
+
+## File upload allowlist
+
+Ví dụ chỉ cho phép artifact trong workspace và một file báo cáo cụ thể:
+
+```env
+ROCKETCHAT_ALLOWED_UPLOAD_PATHS=/workspace/project/dist,/workspace/reports/release.pdf
+ROCKETCHAT_MAX_UPLOAD_BYTES=26214400
+```
+
+- Path tương đối được resolve theo working directory của tiến trình MCP; với GUI
+  client nên dùng path tuyệt đối để tránh phụ thuộc `cwd`.
+- Tool chỉ đọc regular file, không đọc directory.
+- Kết quả tool và audit log chỉ chứa tên/kích thước file, không trả full local path.
+- Giới hạn này là lớp bảo vệ phía MCP; giới hạn upload cấu hình trong Rocket.Chat
+  vẫn được áp dụng độc lập.
 
 ## Room allowlist hoạt động thế nào
 

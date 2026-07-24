@@ -2,6 +2,7 @@ export type AgentId = 'codex' | 'claude-code' | 'claude-desktop';
 export type RoomAccess = 'selected' | 'all';
 export type DmAccess = 'disabled' | 'selected' | 'all';
 export type MentionPolicy = 'blocked' | 'here-only' | 'all';
+export type UploadAccess = 'disabled' | 'selected' | 'all';
 export type CredentialStorage = 'env-file' | 'client-config';
 
 export interface Credentials {
@@ -32,6 +33,8 @@ export interface PolicySelection {
   dmAccess: DmAccess;
   selectedDmUsers: string[];
   mentionPolicy: MentionPolicy;
+  uploadAccess: UploadAccess;
+  allowedUploadPaths: string[];
 }
 
 export interface ProfileInput extends Credentials, PolicySelection {}

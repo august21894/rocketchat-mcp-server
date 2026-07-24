@@ -83,6 +83,22 @@ export interface RcMessageResponse {
   success: boolean;
 }
 
+/** First-step response from `POST /rooms.media/:rid`. */
+export interface RcMediaUploadResponse {
+  file: {
+    _id: string;
+    url: string;
+  };
+  success: boolean;
+}
+
+/** Allow-listed fields for the second-step media confirmation request. */
+export interface RcMediaConfirmPayload {
+  description?: string;
+  msg?: string;
+  tmid?: string;
+}
+
 /** Outbound payload for chat.postMessage / chat.sendMessage (allow-listed fields only). */
 export interface RcPostMessagePayload {
   channel?: string;

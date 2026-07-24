@@ -1,15 +1,15 @@
 # Rocket.Chat MCP Server
 
 MCP Server cho Coding Agent tương tác **an toàn** với Rocket.Chat qua REST API.
-Bản MVP hỗ trợ kiểm tra kết nối, tìm user, liệt kê room và gửi message (kèm
-mention, thread reply, dry-run và chống gửi trùng) tới đúng một đích mỗi lần gọi.
+Bản hiện tại hỗ trợ kiểm tra kết nối, tìm user, liệt kê room, gửi message và upload
+file local an toàn tới đúng một đích mỗi lần gọi.
 
 - Transport: MCP `stdio` (chạy local cùng Coding Agent).
 - Ngôn ngữ: TypeScript trên Node.js LTS (khuyến nghị Node ≥ 20; đã test trên Node 24).
 - SDK: [MCP TypeScript SDK](https://ts.sdk.modelcontextprotocol.io/server) + Zod.
 - Hoạt động với cả Rocket.Chat self-hosted lẫn Cloud, miễn là REST API truy cập được.
 
-## Năm MCP tools
+## Bảy MCP tools
 
 | Tool                         | Mục đích                                          | Side effect           |
 | ---------------------------- | ------------------------------------------------- | --------------------- |
@@ -18,6 +18,8 @@ mention, thread reply, dry-run và chống gửi trùng) tới đúng một đí
 | `rocketchat_list_rooms`      | Liệt kê room bot đã tham gia (đã lọc policy)      | Không                 |
 | `rocketchat_preview_message` | Render preview dễ đọc trước màn xác nhận          | Không                 |
 | `rocketchat_send_message`    | Gửi 1 message tới 1 đích (mention/thread/dry-run) | Có khi `dryRun=false` |
+| `rocketchat_preview_file`    | Validate và preview file upload                   | Không                 |
+| `rocketchat_upload_file`     | Upload 1 file local qua path allowlist + dry-run  | Có khi `dryRun=false` |
 
 Chi tiết schema và ví dụ: [`docs/tool-reference.md`](docs/tool-reference.md).
 
@@ -33,14 +35,15 @@ Initializer sẽ:
 1. Phát hiện và cho chọn nhiều MCP client: **Codex**, **Claude Code**, **Claude Desktop**.
 2. Kiểm tra credential, phát hiện các room bot đã join và cho chọn allowlist hoặc
    **All joined rooms** với giải thích phạm vi rõ ràng.
-3. Cấu hình DM, `@here`/`@all`, nơi lưu credential và vị trí cài runtime.
+3. Cấu hình DM, `@here`/`@all`, local file upload paths, nơi lưu credential và
+   vị trí cài runtime.
 4. Cài runtime vào thư mục user ổn định, lưu token trong profile ENV mode
    `0600`, backup cấu hình cũ và rollback nếu ghi lỗi.
 5. Hỗ trợ nhiều workspace qua các profile độc lập như `rocketchat-facon`.
 
 `ROCKETCHAT_WORKSPACE_NAME` là biến **tùy chọn** cho tên gọi thân thiện của
 workspace (vd `Facon`). Server dùng tên này trong MCP instructions và mô tả cả
-năm tools để agent hiểu các câu như “gửi Facon đến #engineering”. Nếu không set,
+bảy tools để agent hiểu các câu như “gửi Facon đến #engineering”. Nếu không set,
 server tự dùng hostname của `ROCKETCHAT_BASE_URL`. Initializer cho phép đặt tên này
 ngay trong wizard.
 
@@ -73,6 +76,87 @@ danh sách** — áp dụng cho cả room (`ROCKETCHAT_ALLOWED_ROOMS`) và DM
 (`ROCKETCHAT_ALLOWED_DM_USERS`). ⚠️ **Default hiện tại nới lỏng** để dùng được ngay khi
 chỉ có 3 secret: `ALLOW_DM`, `@here`, `@all` đều **bật** và mọi allowlist trống = cho
 phép tất cả. Muốn theo least-privilege thì set `false` / liệt kê tường minh.
+
+## Upload file với `rocketchat_upload_file`
+
+Tool upload đọc file trên chính máy đang chạy MCP rồi gửi file vào một room
+Rocket.Chat. Upload mặc định bị tắt cho đến khi cấu hình path allowlist.
+
+Cho phép một thư mục:
+
+```env
+ROCKETCHAT_ALLOWED_UPLOAD_PATHS=/Users/longduy/projects
+```
+
+Cho phép nhiều thư mục hoặc file cụ thể, ngăn cách bằng dấu phẩy:
+
+```env
+ROCKETCHAT_ALLOWED_UPLOAD_PATHS=/Users/longduy/projects,/Users/longduy/Downloads,/private/tmp/report.pdf
+```
+
+Cho phép mọi file mà tiến trình MCP có quyền đọc:
+
+```env
+ROCKETCHAT_ALLOWED_UPLOAD_PATHS=/
+```
+
+> Cấu hình `/` có rủi ro cao: agent có thể đọc và upload cả `.env`, SSH key hoặc
+> tài liệu cá nhân nếu tiến trình MCP có quyền truy cập. Nên allowlist đúng các
+> thư mục artifact cần dùng. Path tương đối được resolve theo working directory
+> của MCP; path tuyệt đối ổn định hơn khi chạy qua Codex/Claude Desktop.
+
+Giới hạn kích thước phía MCP mặc định là 25 MiB:
+
+```env
+ROCKETCHAT_MAX_UPLOAD_BYTES=26214400
+```
+
+Sau khi đổi cấu hình, restart MCP server hoặc mở phiên agent mới.
+
+### Preview trước khi upload
+
+Agent gọi `rocketchat_preview_file` với input:
+
+```json
+{
+  "target": { "type": "channel", "value": "general" },
+  "filePath": "/Users/longduy/projects/dist/report.pdf",
+  "description": "Release report",
+  "message": "Build completed",
+  "threadMessageId": null
+}
+```
+
+`rocketchat_preview_file` chỉ resolve destination và kiểm tra file/policy, không
+upload và được initializer auto-approve cho Codex/Claude Code. Agent phải hiển thị
+nguyên văn `previewText`, sau đó gọi `rocketchat_upload_file` với cùng chi tiết:
+
+```json
+{
+  "target": { "type": "channel", "value": "general" },
+  "filePath": "/Users/longduy/projects/dist/report.pdf",
+  "description": "Release report",
+  "message": "Build completed",
+  "threadMessageId": null,
+  "dryRun": false
+}
+```
+
+Các giá trị `target.type` được hỗ trợ:
+
+- `channel`: tên public channel.
+- `private_room`: tên hoặc id private room.
+- `room_id`: room id đã biết.
+- `user`: username của DM đã có room. Tool không tự tạo DM mới khi upload.
+
+Tool áp dụng room/DM allowlist hiện có, chặn E2EE, kiểm tra
+`threadMessageId`, chỉ đọc regular file và chống symlink thoát khỏi path
+allowlist. MIME type được suy ra từ phần mở rộng; loại không xác định dùng
+`application/octet-stream`. Tool không nhận URL hoặc base64 làm file source.
+
+Rocket.Chat xử lý upload bằng hai write request (`rooms.media` rồi
+`rooms.mediaConfirm`). MCP không tự retry các request này; trạng thái không chắc
+chắn được trả về dưới dạng `unknown_delivery_state` để tránh upload trùng.
 
 ## Chạy server
 
@@ -115,15 +199,24 @@ Cách khác: bỏ `ROCKETCHAT_ENV_FILE` và set thẳng các biến `ROCKETCHAT_
 `env` (khi đó token nằm trong file cấu hình). Env trong khối `env` luôn ưu tiên hơn
 `.env`.
 
-Trước mỗi lần gửi, agent gọi `rocketchat_preview_message` để render đúng nội dung
-sẽ gửi (gồm icon `🤖`, mentions và destination), hiển thị nguyên văn preview cho
-người dùng, rồi mới gọi `rocketchat_send_message` với `dryRun=false` để MCP client
-hiện màn xác nhận. Nếu người dùng chỉ yêu cầu xem trước thì workflow dừng sau tool
-preview.
+Trước mỗi lần gửi message, agent gọi `rocketchat_preview_message` để render đúng
+nội dung sẽ gửi (gồm icon `🤖`, mentions và destination), hiển thị nguyên văn
+preview cho người dùng, rồi mới gọi `rocketchat_send_message` với `dryRun=false`
+để MCP client hiện màn xác nhận. Nếu người dùng chỉ yêu cầu xem trước thì workflow
+dừng sau tool preview.
 
-Wizard tự thêm permission cho ba tool read-only (`preview_message`, `search_users`,
-`list_rooms`) trên Codex và Claude Code, nên các bước đọc/xem trước không cần
-confirm. Tool gửi thật vẫn theo permission/approval policy của MCP client.
+Initializer hỏi phạm vi upload local khi chạy `npm create rocketchat-mcp@latest`:
+tắt upload, chọn một/nhiều file hoặc thư mục, hoặc cho phép mọi file đọc được.
+Bạn cũng có thể sửa `ROCKETCHAT_ALLOWED_UPLOAD_PATHS` thủ công. Trước khi upload,
+agent gọi `rocketchat_preview_file` không cần human approval và hiển thị nguyên văn
+preview, rồi mới gọi `rocketchat_upload_file` với cùng tham số và `dryRun=false`.
+Tool upload dùng API hai bước `rooms.media` + `rooms.mediaConfirm`, chặn E2EE,
+kiểm tra destination/thread và không tự retry write request.
+
+Wizard tự thêm permission cho bốn tool read-only (`preview_message`,
+`preview_file`, `search_users`, `list_rooms`) trên Codex và Claude Code, nên các
+bước đọc/xem trước không cần confirm. Tool gửi/upload thật vẫn theo
+permission/approval policy của MCP client.
 
 ## Kiểm thử với MCP Inspector
 
@@ -225,7 +318,7 @@ src/
   policies/              # destination / mention / content policies
   services/              # connection, user, room, target-resolver, idempotency, message
   server/                # createServer + tool annotations
-  tools/                 # 4 MCP tools + result/audit helpers
+  tools/                 # MCP tools + result/audit helpers
   setup/                 # wizard: chọn agent, nhập ENV, ghi config (cli/prompt/agents/writers/apply)
 ```
 
@@ -238,5 +331,5 @@ src/
 ## Ngoài phạm vi MVP
 
 E2EE room, realtime WebSocket, multi-tenant remote, OAuth theo user, gửi nhiều
-room cùng lúc, mạo danh (`alias`/`avatar`), tạo/sửa/xóa room-message, upload file,
+room cùng lúc, mạo danh (`alias`/`avatar`), tạo/sửa/xóa room-message,
 đọc history — xem Phase 5 trong plan.

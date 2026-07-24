@@ -18,3 +18,6 @@ export const SEND_MESSAGE_ANNOTATIONS: ToolAnnotations = {
   destructiveHint: false,
   openWorldHint: true,
 };
+
+/** Shared annotations for non-destructive writes to Rocket.Chat. */
+export const WRITE_ANNOTATIONS: ToolAnnotations = SEND_MESSAGE_ANNOTATIONS;

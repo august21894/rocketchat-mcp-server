@@ -15,6 +15,7 @@ import type { McpServerDefinition } from './types.js';
 
 const AUTO_APPROVED_READ_ONLY_TOOLS = [
   'rocketchat_preview_message',
+  'rocketchat_preview_file',
   'rocketchat_search_users',
   'rocketchat_list_rooms',
 ] as const;
@@ -108,7 +109,7 @@ export function upsertJsonServer(
   return JSON.stringify(root, null, 2) + '\n';
 }
 
-/** Allow only selected read-only tools in Claude Code; sending still prompts. */
+/** Allow only selected read-only tools in Claude Code; writes still prompt. */
 export function upsertClaudeCodeReadOnlyPermissions(
   existing: string | undefined,
   serverName: string,

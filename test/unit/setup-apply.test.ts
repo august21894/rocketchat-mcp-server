@@ -102,6 +102,7 @@ describe('applyToAgent — JSON', () => {
     expect(parsed.permissions.allow).toEqual([
       'Bash(git status)',
       'mcp__rocketchat__rocketchat_preview_message',
+      'mcp__rocketchat__rocketchat_preview_file',
       'mcp__rocketchat__rocketchat_search_users',
       'mcp__rocketchat__rocketchat_list_rooms',
     ]);

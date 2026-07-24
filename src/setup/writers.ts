@@ -11,6 +11,7 @@ export interface McpServerDef {
 
 const AUTO_APPROVED_READ_ONLY_TOOLS = [
   'rocketchat_preview_message',
+  'rocketchat_preview_file',
   'rocketchat_search_users',
   'rocketchat_list_rooms',
 ] as const;
@@ -48,7 +49,7 @@ export function upsertJsonMcpServer(
   return { text: JSON.stringify(root, null, 2) + '\n', replaced };
 }
 
-/** Allow only selected read-only tools in Claude Code; sending still prompts. */
+/** Allow only selected read-only tools in Claude Code; writes still prompt. */
 export function upsertClaudeCodeReadOnlyPermissions(
   existingText: string | undefined,
   serverName: string,

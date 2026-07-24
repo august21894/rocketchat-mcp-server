@@ -4,6 +4,9 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { MockRocketChat } from '../fixtures/mock-rocketchat-server.js';
 import { TEST_TOKEN } from '../fixtures/config.js';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const USER_ID = 'bot-user-id';
 const projectRoot = fileURLToPath(new URL('../..', import.meta.url));
@@ -20,9 +23,14 @@ const mock = new MockRocketChat({
 
 let client: Client;
 let transport: StdioClientTransport;
+let uploadDirectory: string;
+let uploadFile: string;
 
 beforeAll(async () => {
   await mock.start();
+  uploadDirectory = await mkdtemp(join(tmpdir(), 'rc-e2e-upload-'));
+  uploadFile = join(uploadDirectory, 'artifact.txt');
+  await writeFile(uploadFile, 'artifact contents');
   transport = new StdioClientTransport({
     command: process.execPath,
     args: ['--import', 'tsx', entry],
@@ -36,6 +44,7 @@ beforeAll(async () => {
       ROCKETCHAT_ALLOWED_ROOMS: 'general',
       ROCKETCHAT_ALLOW_DM: 'true',
       ROCKETCHAT_ALLOWED_DM_USERS: 'alice',
+      ROCKETCHAT_ALLOWED_UPLOAD_PATHS: uploadDirectory,
       LOG_LEVEL: 'error',
     },
   });
@@ -46,6 +55,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await client?.close();
   await mock.stop();
+  await rm(uploadDirectory, { recursive: true, force: true });
 });
 
 describe('MCP stdio end-to-end', () => {
@@ -57,23 +67,29 @@ describe('MCP stdio end-to-end', () => {
     expect(instructions).toContain('Never display only renderedText');
     expect(instructions).toContain('Only after displaying that complete preview');
     expect(instructions).toContain('rocketchat_send_message');
+    expect(instructions).toContain('always call rocketchat_preview_file first');
+    expect(instructions).toContain('read-only and should not require human approval');
+    expect(instructions).toContain('rocketchat_upload_file');
   });
 
-  it('exposes exactly the five tools with correct annotations', async () => {
+  it('exposes exactly the seven tools with correct annotations', async () => {
     const { tools } = await client.listTools();
     const byName = new Map(tools.map((t) => [t.name, t]));
     expect([...byName.keys()].sort()).toEqual([
       'rocketchat_list_rooms',
+      'rocketchat_preview_file',
       'rocketchat_preview_message',
       'rocketchat_search_users',
       'rocketchat_send_message',
       'rocketchat_test_connection',
+      'rocketchat_upload_file',
     ]);
 
     for (const name of [
       'rocketchat_test_connection',
       'rocketchat_search_users',
       'rocketchat_list_rooms',
+      'rocketchat_preview_file',
       'rocketchat_preview_message',
     ]) {
       expect(byName.get(name)?.annotations?.readOnlyHint).toBe(true);
@@ -83,6 +99,13 @@ describe('MCP stdio end-to-end', () => {
     expect(send?.annotations?.openWorldHint).toBe(true);
     expect(send?.description).toContain('rocketchat_preview_message must be called');
     expect(send?.description).toContain('shown verbatim');
+    const previewFile = byName.get('rocketchat_preview_file');
+    expect(previewFile?.annotations?.readOnlyHint).toBe(true);
+    expect(previewFile?.annotations?.destructiveHint).toBe(false);
+    expect(previewFile?.description).toContain('should not require human approval');
+    const uploadFileTool = byName.get('rocketchat_upload_file');
+    expect(uploadFileTool?.annotations?.readOnlyHint).toBe(false);
+    expect(uploadFileTool?.description).toContain('Always call rocketchat_preview_file first');
     // Every tool advertises an input schema and the configured workspace.
     for (const tool of tools) {
       expect(tool.inputSchema).toBeDefined();
@@ -177,6 +200,57 @@ describe('MCP stdio end-to-end', () => {
       },
     });
     expect(result.structuredContent).toMatchObject({ sent: true });
+  });
+
+  it('previews and uploads a local file', async () => {
+    const args = {
+      target: { type: 'channel', value: 'general' },
+      filePath: uploadFile,
+      description: 'Test artifact',
+      message: 'Build output',
+    };
+    const mediaRequestsBefore = mock.requests.filter((request) =>
+      request.path.includes('rooms.media'),
+    ).length;
+    const preview = await client.callTool({
+      name: 'rocketchat_preview_file',
+      arguments: args,
+    });
+    expect(preview.isError).toBeFalsy();
+    expect(preview.structuredContent).toMatchObject({
+      uploaded: false,
+      preview: true,
+      file: { name: 'artifact.txt', contentType: 'text/plain' },
+      previewText:
+        '📎 **Facon → #General Discussion**\n\n' +
+        'File: artifact.txt (17 bytes, text/plain)\n' +
+        'Message: 🤖 Build output\n' +
+        'Description: Test artifact',
+    });
+    const previewText = (preview.content as { type: string; text: string }[])[0]!.text;
+    expect(previewText).toBe(
+      '📎 **Facon → #General Discussion**\n\n' +
+        'File: artifact.txt (17 bytes, text/plain)\n' +
+        'Message: 🤖 Build output\n' +
+        'Description: Test artifact',
+    );
+    expect(mock.requests.filter((request) => request.path.includes('rooms.media')).length).toBe(
+      mediaRequestsBefore,
+    );
+
+    const uploaded = await client.callTool({
+      name: 'rocketchat_upload_file',
+      arguments: { ...args, dryRun: false },
+    });
+    expect(uploaded.isError).toBeFalsy();
+    expect(uploaded.structuredContent).toMatchObject({
+      uploaded: true,
+      preview: false,
+      file: { name: 'artifact.txt', id: expect.any(String) },
+      message: { roomId: 'GENERAL' },
+    });
+    const text = (uploaded.content as { type: string; text: string }[])[0]!.text;
+    expect(text).toBe('✅ Đã tải file artifact.txt lên #General Discussion.');
   });
 
   it('confirms a DM send with the recipient display name', async () => {

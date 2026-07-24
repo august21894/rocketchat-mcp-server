@@ -2,7 +2,7 @@
 import * as p from '@clack/prompts';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename } from 'node:path';
+import { basename, isAbsolute } from 'node:path';
 import { FileTransaction, configureAgent } from './agents.js';
 import { installRuntime } from './install.js';
 import { profilePath, resolveAgentPaths, resolveAppPaths, type AgentPath } from './paths.js';
@@ -23,6 +23,7 @@ import type {
   MentionPolicy,
   ProfileInput,
   RoomAccess,
+  UploadAccess,
 } from './types.js';
 
 interface CliOptions {
@@ -188,6 +189,7 @@ async function main(): Promise<void> {
       `Room access     ${describeRoomPolicy(policy.roomAccess, policy.selectedRoomIds, discovery)}`,
       `Direct messages ${describeDmPolicy(policy.dmAccess, policy.selectedDmUsers)}`,
       `Group mentions  ${describeMentionPolicy(policy.mentionPolicy)}`,
+      `File uploads    ${describeUploadPolicy(policy.uploadAccess, policy.allowedUploadPaths)}`,
       `Credentials     ${
         storage === 'env-file' ? `Dedicated profile · ${envPath}` : 'Plaintext MCP client config'
       }`,
@@ -350,6 +352,8 @@ async function collectPolicy(
   dmAccess: DmAccess;
   selectedDmUsers: string[];
   mentionPolicy: MentionPolicy;
+  uploadAccess: UploadAccess;
+  allowedUploadPaths: string[];
 }> {
   p.note(
     'All joined rooms means every room the bot belongs to now and rooms it joins later.\n' +
@@ -495,7 +499,79 @@ async function collectPolicy(
     }),
   ) as MentionPolicy;
 
-  return { roomAccess, selectedRoomIds, dmAccess, selectedDmUsers, mentionPolicy };
+  p.note(
+    'File upload reads local files from the machine running this MCP.\n' +
+      'Use an explicit path allowlist to prevent accidental access to secrets or personal files.',
+    'Local file uploads',
+  );
+  const currentUploadPaths = splitCsv(current.ROCKETCHAT_ALLOWED_UPLOAD_PATHS);
+  const currentUploadAccess: UploadAccess =
+    currentUploadPaths.length === 1 && currentUploadPaths[0] === '/'
+      ? 'all'
+      : currentUploadPaths.length > 0
+        ? 'selected'
+        : 'disabled';
+  const uploadAccess = promptValue(
+    await p.select({
+      message: 'Which local files may this MCP upload?',
+      options: [
+        {
+          value: 'disabled',
+          label: 'Disable file uploads',
+          hint: 'recommended · no local files can be read for upload',
+        },
+        {
+          value: 'selected',
+          label: 'Selected files or directories',
+          hint: 'allow one or more explicit local paths',
+        },
+        {
+          value: 'all',
+          label: 'All readable local files',
+          hint: 'high risk · may expose credentials and personal files',
+        },
+      ],
+      initialValue: currentUploadAccess,
+    }),
+  ) as UploadAccess;
+
+  let allowedUploadPaths: string[] = [];
+  if (uploadAccess === 'selected') {
+    const paths = promptValue(
+      await p.text({
+        message: 'Allowed upload paths (comma-separated)',
+        placeholder:
+          process.platform === 'win32'
+            ? String.raw`C:\projects,C:\temp\reports`
+            : '/Users/me/projects,/private/tmp/reports',
+        initialValue: currentUploadAccess === 'selected' ? currentUploadPaths.join(',') : '',
+        validate(value) {
+          const entries = splitCsv(value);
+          if (entries.length === 0) return 'Enter at least one file or directory path.';
+          if (entries.some(hasControlCharacters)) {
+            return 'Upload paths must not contain control characters.';
+          }
+          if (entries.some((entry) => !isAbsolute(entry))) {
+            return 'Use absolute file or directory paths.';
+          }
+          if (entries.includes('/')) {
+            return 'Choose “All readable local files” instead of entering root (/).';
+          }
+        },
+      }),
+    );
+    allowedUploadPaths = splitCsv(paths);
+  }
+
+  return {
+    roomAccess,
+    selectedRoomIds,
+    dmAccess,
+    selectedDmUsers,
+    mentionPolicy,
+    uploadAccess,
+    allowedUploadPaths,
+  };
 }
 
 async function collectCredentialStorage(): Promise<CredentialStorage> {
@@ -563,6 +639,12 @@ function describeMentionPolicy(policy: MentionPolicy): string {
   if (policy === 'blocked') return '@here blocked · @all blocked';
   if (policy === 'here-only') return '@here allowed · @all blocked';
   return '@here allowed · @all allowed';
+}
+
+function describeUploadPolicy(access: UploadAccess, paths: string[]): string {
+  if (access === 'disabled') return 'Disabled';
+  if (access === 'all') return 'All readable local files (high risk)';
+  return `${String(paths.length)} selected · ${paths.join(', ')}`;
 }
 
 function splitCsv(value: string | undefined): string[] {

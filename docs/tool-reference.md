@@ -203,6 +203,103 @@ người dùng duyệt trước. Workflow dành cho agent phải gọi
 
 ---
 
+## `rocketchat_preview_file`
+
+Read-only step bắt buộc trước khi upload file. Tool resolve destination, kiểm tra
+path allowlist, metadata/kích thước file, E2EE và thread rồi trả preview; không gọi
+`rooms.media` hoặc `rooms.mediaConfirm`.
+
+**Input:** giống các field nội dung của `rocketchat_upload_file`, không có `dryRun`.
+
+**Output (`structuredContent`):**
+
+```json
+{
+  "uploaded": false,
+  "preview": true,
+  "destination": { "roomId": "GENERAL", "type": "channel", "name": "general" },
+  "file": { "name": "report.pdf", "size": 2048, "contentType": "application/pdf" },
+  "description": "Release report",
+  "renderedMessage": "🤖 Build completed",
+  "previewText": "📎 **Facon → #general**\n\nFile: report.pdf (2048 bytes, application/pdf)\nMessage: 🤖 Build completed\nDescription: Release report"
+}
+```
+
+`content` chứa đúng `previewText`. Agent phải hiển thị toàn bộ giá trị này nguyên
+văn trước bước upload.
+
+Annotations: `readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: true`.
+Initializer tự thêm tool này vào allow/approval configuration của Codex và Claude
+Code nên preview không cần human approval.
+
+---
+
+## `rocketchat_upload_file`
+
+Upload đúng một file local vào đúng một destination. Rocket.Chat hiện dùng quy
+trình hai bước: MCP gọi `POST /api/v1/rooms.media/:rid` bằng multipart, sau đó gọi
+`POST /api/v1/rooms.mediaConfirm/:rid/:fileId` để tạo message chứa file.
+
+**Input:**
+
+| Field             | Kiểu           | Ràng buộc                                           |
+| ----------------- | -------------- | --------------------------------------------------- |
+| `target`          | object         | Giống target của `rocketchat_send_message`          |
+| `filePath`        | string         | Local path, 1–4096 ký tự, phải qua path allowlist   |
+| `description`     | string \| null | Mô tả file tùy chọn                                 |
+| `message`         | string \| null | Message tùy chọn; MCP tự thêm `🤖`                  |
+| `threadMessageId` | string \| null | Message cha phải thuộc room đích                    |
+| `dryRun`          | boolean        | `false` để upload; `true` chỉ giữ tương thích ngược |
+
+**Policy:**
+
+- `ROCKETCHAT_ALLOWED_UPLOAD_PATHS` trống = upload bị tắt. Mỗi entry là một
+  directory hoặc đúng một file; symlink được resolve trước khi so khớp.
+- File phải là regular file và không vượt `ROCKETCHAT_MAX_UPLOAD_BYTES`.
+- Destination vẫn qua room/DM allowlist. E2EE bị từ chối.
+- DM chưa có room id bị từ chối; tool không âm thầm tạo DM mới.
+- `threadMessageId` được kiểm tra bằng `chat.getMessage` trước khi upload.
+- Hai write request không tự retry để tránh tạo file/message trùng.
+- Timeout/network/5xx khi write trả `unknown_delivery_state` và không được tự retry.
+- Tool không nhận URL, binary/base64 trực tiếp, `alias`, `avatar` hoặc custom payload.
+
+**Output — preview (`dryRun: true`):**
+
+```json
+{
+  "uploaded": false,
+  "preview": true,
+  "destination": { "roomId": "GENERAL", "type": "channel", "name": "general" },
+  "file": { "name": "report.pdf", "size": 2048, "contentType": "application/pdf" },
+  "description": "Release report",
+  "renderedMessage": "🤖 Build completed"
+}
+```
+
+**Output — đã upload (`dryRun: false`):**
+
+```json
+{
+  "uploaded": true,
+  "preview": false,
+  "destination": { "roomId": "GENERAL", "type": "channel", "name": "general" },
+  "file": {
+    "id": "file-id",
+    "url": "/file-upload/file-id/report.pdf",
+    "name": "report.pdf",
+    "size": 2048,
+    "contentType": "application/pdf"
+  },
+  "message": { "id": "message-id", "roomId": "GENERAL", "timestamp": "2026-07-24T10:00:00.000Z" }
+}
+```
+
+Annotations: `readOnlyHint: false`, `destructiveHint: false`, `openWorldHint: true`.
+Agent phải gọi `rocketchat_preview_file`, hiển thị nguyên văn `previewText`, rồi mới
+gọi tool này với cùng file details và `dryRun=false`.
+
+---
+
 ## Error model
 
 Error payload:

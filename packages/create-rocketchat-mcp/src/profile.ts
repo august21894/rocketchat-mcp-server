@@ -30,6 +30,13 @@ export function buildProfileEnvironment(input: ProfileInput): Record<string, str
     ROCKETCHAT_ALLOW_HERE_MENTION: input.mentionPolicy === 'blocked' ? 'false' : 'true',
     ROCKETCHAT_ALLOW_ALL_MENTION: input.mentionPolicy === 'all' ? 'true' : 'false',
     ROCKETCHAT_DISABLE_URL_PREVIEW: 'true',
+    ROCKETCHAT_ALLOWED_UPLOAD_PATHS:
+      input.uploadAccess === 'all'
+        ? '/'
+        : input.uploadAccess === 'selected'
+          ? uniqueCsv(input.allowedUploadPaths)
+          : '',
+    ROCKETCHAT_MAX_UPLOAD_BYTES: String(25 * 1024 * 1024),
     MCP_TRANSPORT: 'stdio',
     LOG_LEVEL: 'info',
   };
@@ -57,6 +64,10 @@ export function renderProfileEnvironment(env: Record<string, string>): string {
         'ROCKETCHAT_ALLOW_ALL_MENTION',
         'ROCKETCHAT_DISABLE_URL_PREVIEW',
       ],
+    },
+    {
+      heading: 'Local file upload policy',
+      keys: ['ROCKETCHAT_ALLOWED_UPLOAD_PATHS', 'ROCKETCHAT_MAX_UPLOAD_BYTES'],
     },
     { heading: 'Runtime', keys: ['MCP_TRANSPORT', 'LOG_LEVEL'] },
   ];

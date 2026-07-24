@@ -31,3 +31,5 @@ npm-debug.log*
 *.bak
 *.bak.*
 /vending-machine-end-to-end.*
+rocket-chat-api-catalog.md
+rocket-chat-mcp-development-plan.md

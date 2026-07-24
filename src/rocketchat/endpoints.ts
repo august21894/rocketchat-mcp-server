@@ -9,6 +9,9 @@ export const ENDPOINTS = {
   chatPostMessage: '/api/v1/chat.postMessage',
   chatSendMessage: '/api/v1/chat.sendMessage',
   chatGetMessage: '/api/v1/chat.getMessage',
+  roomsMedia: (roomId: string) => `/api/v1/rooms.media/${encodeURIComponent(roomId)}`,
+  roomsMediaConfirm: (roomId: string, fileId: string) =>
+    `/api/v1/rooms.mediaConfirm/${encodeURIComponent(roomId)}/${encodeURIComponent(fileId)}`,
 } as const;
 
 /**

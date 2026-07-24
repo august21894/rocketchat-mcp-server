@@ -158,6 +158,14 @@ export const ConfigSchema = z
     ROCKETCHAT_REQUEST_TIMEOUT_MS: envInt(10_000, { min: 1000, max: 120_000 }),
     ROCKETCHAT_DISABLE_URL_PREVIEW: envBoolean(true),
 
+    // File uploads are disabled until at least one local path is explicitly
+    // allow-listed. Entries may point to either a directory or a single file.
+    ROCKETCHAT_ALLOWED_UPLOAD_PATHS: csvSchema,
+    ROCKETCHAT_MAX_UPLOAD_BYTES: envInt(25 * 1024 * 1024, {
+      min: 1,
+      max: 1024 * 1024 * 1024,
+    }),
+
     MCP_TRANSPORT: transportSchema,
     LOG_LEVEL: logLevelSchema,
   })
@@ -174,6 +182,8 @@ export const ConfigSchema = z
     maxTextLength: env.ROCKETCHAT_MAX_TEXT_LENGTH,
     requestTimeoutMs: env.ROCKETCHAT_REQUEST_TIMEOUT_MS,
     disableUrlPreview: env.ROCKETCHAT_DISABLE_URL_PREVIEW,
+    allowedUploadPaths: env.ROCKETCHAT_ALLOWED_UPLOAD_PATHS,
+    maxUploadBytes: env.ROCKETCHAT_MAX_UPLOAD_BYTES,
     transport: env.MCP_TRANSPORT,
     logLevel: env.LOG_LEVEL,
   }));

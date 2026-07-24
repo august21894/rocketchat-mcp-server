@@ -81,6 +81,33 @@ describe('RocketChatClient — write payloads', () => {
     expect(message).not.toHaveProperty('alias');
     expect(message).not.toHaveProperty('avatar');
   });
+
+  it('uploads multipart media and confirms it with allow-listed fields', async () => {
+    const uploaded = await makeClient().roomsMedia({
+      roomId: 'GENERAL',
+      bytes: new TextEncoder().encode('hello file'),
+      fileName: 'hello.txt',
+      contentType: 'text/plain',
+    });
+    const uploadRequest = mock.requests.at(-1)!;
+    expect(uploadRequest.path).toBe('/api/v1/rooms.media/GENERAL');
+    expect(uploadRequest.headers['content-type']).toMatch(/^multipart\/form-data; boundary=/);
+    expect(uploadRequest.body).toEqual(expect.stringContaining('filename="hello.txt"'));
+    expect(uploadRequest.body).toEqual(expect.stringContaining('Content-Type: text/plain'));
+
+    await makeClient().roomsMediaConfirm('GENERAL', uploaded._id, {
+      description: 'Build artifact',
+      msg: '🤖 build output',
+      tmid: 'PARENT1',
+    });
+    const confirmRequest = mock.requests.at(-1)!;
+    expect(confirmRequest.path).toBe(`/api/v1/rooms.mediaConfirm/GENERAL/${uploaded._id}`);
+    expect(confirmRequest.body).toEqual({
+      description: 'Build artifact',
+      msg: '🤖 build output',
+      tmid: 'PARENT1',
+    });
+  });
 });
 
 describe('RocketChatClient — error mapping', () => {
@@ -143,6 +170,23 @@ describe('RocketChatClient — retry policy', () => {
       makeClient({ maxGetRetries: 2 }).chatPostMessage({ channel: '#general', text: 'x' }),
     ).rejects.toBeDefined();
     expect(mock.requests).toHaveLength(1); // no retry
+  });
+
+  it('does NOT retry media uploads', async () => {
+    mock.enqueueOverride({
+      pathIncludes: '/rooms.media/',
+      status: 503,
+      body: { success: false },
+    });
+    await expect(
+      makeClient({ maxGetRetries: 2 }).roomsMedia({
+        roomId: 'GENERAL',
+        bytes: new Uint8Array([1, 2, 3]),
+        fileName: 'data.bin',
+        contentType: 'application/octet-stream',
+      }),
+    ).rejects.toBeDefined();
+    expect(mock.requests).toHaveLength(1);
   });
 });
 

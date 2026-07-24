@@ -5,6 +5,9 @@ import { MockRocketChat, type MockSubscription } from '../fixtures/mock-rocketch
 import { makeConfig } from '../fixtures/config.js';
 import { silentLogger } from '../fixtures/logger.js';
 import { TEST_TOKEN } from '../fixtures/config.js';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const USER_ID = 'bot-user-id';
 
@@ -24,6 +27,9 @@ const mock = new MockRocketChat({
     { _id: 'u2', username: 'bob', name: 'Bob' },
   ],
 });
+
+let uploadDirectory: string;
+let uploadFile: string;
 
 function seed(): void {
   mock.reset();
@@ -51,6 +57,7 @@ function ctxWith(overrides: Record<string, string> = {}): AppContext {
     ROCKETCHAT_ALLOWED_ROOMS: 'general,devs,secret-enc',
     ROCKETCHAT_ALLOW_DM: 'true',
     ROCKETCHAT_ALLOWED_DM_USERS: 'alice',
+    ROCKETCHAT_ALLOWED_UPLOAD_PATHS: uploadDirectory,
     ...overrides,
   });
   return createContext(config, { logger: silentLogger() });
@@ -60,8 +67,16 @@ function chatRequests() {
   return mock.requests.filter((r) => r.path.includes('/chat.'));
 }
 
-beforeAll(() => mock.start());
-afterAll(() => mock.stop());
+beforeAll(async () => {
+  await mock.start();
+  uploadDirectory = await mkdtemp(join(tmpdir(), 'rc-integration-upload-'));
+  uploadFile = join(uploadDirectory, 'report.txt');
+  await writeFile(uploadFile, 'build report');
+});
+afterAll(async () => {
+  await mock.stop();
+  await rm(uploadDirectory, { recursive: true, force: true });
+});
 beforeEach(() => seed());
 
 describe('connection', () => {
@@ -95,6 +110,105 @@ describe('read tools', () => {
     expect(names).toEqual(['alice', 'devs', 'general', 'secret-enc']);
     const general = rooms.find((r) => r.name === 'general');
     expect(general?.type).toBe('channel');
+  });
+});
+
+describe('upload file', () => {
+  it('previews without uploading, then uploads and confirms the file', async () => {
+    const ctx = ctxWith();
+    const input = {
+      target: { type: 'channel' as const, value: 'general' },
+      filePath: uploadFile,
+      description: 'Build artifact',
+      message: 'Build completed',
+      threadMessageId: null,
+    };
+    const preview = await ctx.uploadFileService.upload({ ...input, dryRun: true });
+    expect(preview).toMatchObject({
+      uploaded: false,
+      preview: true,
+      destination: { roomId: 'GENERAL' },
+      file: { name: 'report.txt', contentType: 'text/plain' },
+      renderedMessage: '🤖 Build completed',
+    });
+    expect(mock.requests.filter((request) => request.path.includes('rooms.media'))).toHaveLength(0);
+
+    const uploaded = await ctx.uploadFileService.upload({ ...input, dryRun: false });
+    expect(uploaded).toMatchObject({
+      uploaded: true,
+      preview: false,
+      destination: { roomId: 'GENERAL' },
+      file: { name: 'report.txt', id: expect.any(String), url: expect.any(String) },
+      message: { roomId: 'GENERAL' },
+    });
+    const uploadRequests = mock.requests.filter((request) => request.path.includes('rooms.media'));
+    expect(uploadRequests.map((request) => request.path)).toEqual([
+      '/api/v1/rooms.media/GENERAL',
+      expect.stringMatching('/api/v1/rooms.mediaConfirm/GENERAL/'),
+    ]);
+    expect(uploadRequests[1]?.body).toEqual({
+      description: 'Build artifact',
+      msg: '🤖 Build completed',
+    });
+  });
+
+  it('enforces file, destination, E2EE, and thread policies before upload', async () => {
+    const base = {
+      filePath: uploadFile,
+      description: null,
+      message: null,
+      threadMessageId: null,
+      dryRun: false,
+    };
+    await expect(
+      ctxWith({ ROCKETCHAT_ALLOWED_UPLOAD_PATHS: '' }).uploadFileService.upload({
+        ...base,
+        target: { type: 'channel', value: 'general' },
+      }),
+    ).rejects.toMatchObject({ code: 'permission_denied' });
+    await expect(
+      ctxWith().uploadFileService.upload({
+        ...base,
+        target: { type: 'channel', value: 'random' },
+      }),
+    ).rejects.toMatchObject({ code: 'destination_not_allowed' });
+    await expect(
+      ctxWith().uploadFileService.upload({
+        ...base,
+        target: { type: 'private_room', value: 'secret-enc' },
+      }),
+    ).rejects.toMatchObject({ code: 'encrypted_room_not_supported' });
+    await expect(
+      ctxWith().uploadFileService.upload({
+        ...base,
+        target: { type: 'channel', value: 'general' },
+        threadMessageId: 'OTHER1',
+      }),
+    ).rejects.toMatchObject({ code: 'thread_room_mismatch' });
+    expect(mock.requests.filter((request) => request.path.includes('rooms.media'))).toHaveLength(0);
+  });
+
+  it('returns a non-retryable unknown state when media confirmation is uncertain', async () => {
+    mock.enqueueOverride({
+      pathIncludes: '/rooms.mediaConfirm/',
+      status: 503,
+      body: { success: false, error: 'temporary failure' },
+    });
+    await expect(
+      ctxWith().uploadFileService.upload({
+        target: { type: 'channel', value: 'general' },
+        filePath: uploadFile,
+        description: null,
+        message: null,
+        threadMessageId: null,
+        dryRun: false,
+      }),
+    ).rejects.toMatchObject({
+      code: 'unknown_delivery_state',
+      retryable: false,
+      details: { stage: 'media_confirm' },
+    });
+    expect(mock.requests.filter((request) => request.path.includes('rooms.media'))).toHaveLength(2);
   });
 });
 

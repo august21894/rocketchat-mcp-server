@@ -29,6 +29,7 @@ export interface MockMessage {
   ts: string;
   tmid?: string;
   u: { _id: string; username: string };
+  file?: { _id: string; name: string; type: string; size: number };
 }
 
 export interface RecordedRequest {
@@ -64,6 +65,8 @@ export class MockRocketChat {
   private readonly overrides: ResponseOverride[] = [];
   private delayMs = 0;
   private msgCounter = 0;
+  private fileCounter = 0;
+  private readonly uploadedFiles = new Map<string, { roomId: string; name: string }>();
 
   users: MockUser[];
   subscriptions: MockSubscription[];
@@ -100,6 +103,7 @@ export class MockRocketChat {
     this.requests.length = 0;
     this.overrides.length = 0;
     this.delayMs = 0;
+    this.uploadedFiles.clear();
   }
 
   async start(): Promise<void> {
@@ -223,6 +227,23 @@ export class MockRocketChat {
       return;
     }
 
+    const mediaMatch = path.match(/^\/api\/v1\/rooms\.media\/([^/]+)$/);
+    if (mediaMatch && method === 'POST') {
+      this.handleMediaUpload(decodeURIComponent(mediaMatch[1]!), body, res);
+      return;
+    }
+
+    const confirmMatch = path.match(/^\/api\/v1\/rooms\.mediaConfirm\/([^/]+)\/([^/]+)$/);
+    if (confirmMatch && method === 'POST') {
+      this.handleMediaConfirm(
+        decodeURIComponent(confirmMatch[1]!),
+        decodeURIComponent(confirmMatch[2]!),
+        body,
+        res,
+      );
+      return;
+    }
+
     this.send(res, 404, { success: false, error: 'Not found', errorType: 'error-not-found' });
   }
 
@@ -261,6 +282,51 @@ export class MockRocketChat {
       return;
     }
     const message = this.createMessage(msg.rid ?? 'unknown', msg.msg ?? '', msg._id, msg.tmid);
+    this.send(res, 200, { success: true, message });
+  }
+
+  private handleMediaUpload(roomId: string, body: unknown, res: ServerResponse): void {
+    if (typeof body !== 'string' || !body.includes('name="file"')) {
+      this.send(res, 400, {
+        success: false,
+        error: 'File is required',
+        errorType: 'invalid-params',
+      });
+      return;
+    }
+    this.fileCounter += 1;
+    const fileId = `file-${this.fileCounter}`;
+    const fileName = /filename="([^"]+)"/.exec(body)?.[1] ?? 'upload.bin';
+    this.uploadedFiles.set(fileId, { roomId, name: fileName });
+    this.send(res, 200, {
+      success: true,
+      file: { _id: fileId, url: `/file-upload/${fileId}/${encodeURIComponent(fileName)}` },
+    });
+  }
+
+  private handleMediaConfirm(
+    roomId: string,
+    fileId: string,
+    body: unknown,
+    res: ServerResponse,
+  ): void {
+    const uploaded = this.uploadedFiles.get(fileId);
+    if (!uploaded || uploaded.roomId !== roomId) {
+      this.send(res, 400, {
+        success: false,
+        error: 'Uploaded file not found',
+        errorType: 'error-file-not-found',
+      });
+      return;
+    }
+    const payload = (body ?? {}) as { msg?: string; tmid?: string };
+    const message = this.createMessage(roomId, payload.msg ?? '', undefined, payload.tmid);
+    message.file = {
+      _id: fileId,
+      name: uploaded.name,
+      type: 'application/octet-stream',
+      size: 0,
+    };
     this.send(res, 200, { success: true, message });
   }
 

@@ -19,6 +19,8 @@ function input(overrides: Partial<ProfileInput> = {}): ProfileInput {
     dmAccess: 'disabled',
     selectedDmUsers: [],
     mentionPolicy: 'blocked',
+    uploadAccess: 'disabled',
+    allowedUploadPaths: [],
     ...overrides,
   };
 }
@@ -48,6 +50,22 @@ describe('initializer profile policy', () => {
     expect(env.ROCKETCHAT_ALLOWED_DM_USERS).toBe('alice,bob');
     expect(env.ROCKETCHAT_ALLOW_HERE_MENTION).toBe('true');
     expect(env.ROCKETCHAT_ALLOW_ALL_MENTION).toBe('false');
+  });
+
+  it('maps disabled, selected, and all local upload access', () => {
+    expect(buildProfileEnvironment(input()).ROCKETCHAT_ALLOWED_UPLOAD_PATHS).toBe('');
+    expect(
+      buildProfileEnvironment(
+        input({
+          uploadAccess: 'selected',
+          allowedUploadPaths: ['/workspace/dist', '/private/tmp', '/workspace/dist'],
+        }),
+      ).ROCKETCHAT_ALLOWED_UPLOAD_PATHS,
+    ).toBe('/workspace/dist,/private/tmp');
+    expect(
+      buildProfileEnvironment(input({ uploadAccess: 'all', allowedUploadPaths: ['/ignored'] }))
+        .ROCKETCHAT_ALLOWED_UPLOAD_PATHS,
+    ).toBe('/');
   });
 
   it('round-trips generated environment files without losing token characters', () => {

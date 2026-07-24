@@ -52,6 +52,7 @@ describe('initializer agent writers', () => {
     expect(second).not.toContain('/stable/runtime/dist/index.js');
     expect(second).toContain('model = "gpt-5"');
     expect(second).toContain('[mcp_servers.rocketchat-facon.tools.rocketchat_preview_message]');
+    expect(second).toContain('[mcp_servers.rocketchat-facon.tools.rocketchat_preview_file]');
     expect(second).toContain('[mcp_servers.rocketchat-facon.tools.rocketchat_search_users]');
     expect(second).toContain('[mcp_servers.rocketchat-facon.tools.rocketchat_list_rooms]');
     expect(second).toContain('approval_mode = "approve"');
@@ -67,6 +68,7 @@ describe('initializer agent writers', () => {
     expect(parsed.permissions.allow).toEqual([
       'Bash(git status)',
       'mcp__rocketchat-facon__rocketchat_preview_message',
+      'mcp__rocketchat-facon__rocketchat_preview_file',
       'mcp__rocketchat-facon__rocketchat_search_users',
       'mcp__rocketchat-facon__rocketchat_list_rooms',
     ]);
@@ -101,6 +103,9 @@ describe('initializer agent writers', () => {
     expect(readFileSync(path, 'utf8')).toContain('rocketchat-facon');
     expect(readFileSync(agent.permissionConfigPath!, 'utf8')).toContain(
       'mcp__rocketchat-facon__rocketchat_preview_message',
+    );
+    expect(readFileSync(agent.permissionConfigPath!, 'utf8')).toContain(
+      'mcp__rocketchat-facon__rocketchat_preview_file',
     );
     expect(readFileSync(agent.permissionConfigPath!, 'utf8')).toContain(
       'mcp__rocketchat-facon__rocketchat_search_users',

@@ -46,6 +46,21 @@ Tài liệu này mô tả các kiểm soát bảo mật của MCP Server và gi�
 - Không nhận `alias`/`avatar`/attachment/custom payload — client chỉ gửi field
   trong allowlist.
 
+### File upload local
+
+- `rocketchat_preview_file` chỉ đọc/validate metadata và destination, không gọi
+  write endpoint; initializer auto-approve tool này cho Codex/Claude Code.
+- Upload mặc định bị tắt; phải cấu hình `ROCKETCHAT_ALLOWED_UPLOAD_PATHS` tường minh.
+- File source chỉ là local path, không nhận URL và không tự download nội dung mạng.
+- MCP resolve symlink/real path trước khi so khớp allowlist, chỉ đọc regular file và
+  kiểm tra `ROCKETCHAT_MAX_UPLOAD_BYTES` trước khi tạo request.
+- Upload dùng hai write request (`rooms.media` rồi `rooms.mediaConfirm`) và không tự
+  retry. Nếu confirm lỗi, Rocket.Chat có thể còn một media record chưa gắn message;
+  operator cần dọn theo policy/version của workspace.
+- Timeout/network/5xx trong write trả `unknown_delivery_state` không retryable để
+  agent không tự chạy lại toàn bộ upload khi trạng thái upstream chưa rõ.
+- E2EE room bị từ chối; target vẫn qua room/DM allowlist hiện có.
+
 ## 4. Secret & log
 
 - Redact `X-Auth-Token`, `Authorization`, cookie, password và các key nhạy cảm.
@@ -55,6 +70,8 @@ Tài liệu này mô tả các kiểm soát bảo mật của MCP Server và gi�
 - Audit log của `send_message` gồm: tool name, correlation id, target type,
   room id, idempotency key **đã hash**, kết quả và message id. **Không** log full
   message text — chỉ hash/length/preview khi cần.
+- Audit log của `upload_file` chỉ ghi target type, room id, tên/kích thước file,
+  file/message id; không ghi full local path hoặc nội dung file.
 - Payload trả cho MCP client đi qua redaction pass cuối cùng.
 
 ## 5. Prompt injection (khi mở rộng đọc history/realtime — Phase 5)

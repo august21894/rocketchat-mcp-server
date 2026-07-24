@@ -18,6 +18,8 @@ import type {
   RcAutocompleteResponse,
   RcAutocompleteUser,
   RcMeResponse,
+  RcMediaConfirmPayload,
+  RcMediaUploadResponse,
   RcMessage,
   RcMessageResponse,
   RcPostMessagePayload,
@@ -49,6 +51,7 @@ interface RequestOptions {
   path: string;
   query?: Record<string, string>;
   body?: unknown;
+  formData?: FormData;
 }
 
 export class RocketChatClient {
@@ -130,6 +133,41 @@ export class RocketChatClient {
     return res.message;
   }
 
+  /** `POST /api/v1/rooms.media/:rid` — upload bytes without sending them yet. */
+  async roomsMedia(args: {
+    roomId: string;
+    bytes: Uint8Array;
+    fileName: string;
+    contentType: string;
+  }): Promise<RcMediaUploadResponse['file']> {
+    const formData = new FormData();
+    // Copy into an ArrayBuffer-backed view accepted by Blob on every supported
+    // Node version, including when the source is a pooled Buffer.
+    const bytes = new Uint8Array(args.bytes.byteLength);
+    bytes.set(args.bytes);
+    formData.append('file', new Blob([bytes], { type: args.contentType }), args.fileName);
+    const res = await this.request<RcMediaUploadResponse>({
+      method: 'POST',
+      path: ENDPOINTS.roomsMedia(args.roomId),
+      formData,
+    });
+    return res.file;
+  }
+
+  /** `POST /api/v1/rooms.mediaConfirm/:rid/:fileId` — publish an uploaded file. */
+  async roomsMediaConfirm(
+    roomId: string,
+    fileId: string,
+    payload: RcMediaConfirmPayload,
+  ): Promise<RcMessage> {
+    const res = await this.request<RcMessageResponse>({
+      method: 'POST',
+      path: ENDPOINTS.roomsMediaConfirm(roomId, fileId),
+      body: payload,
+    });
+    return res.message;
+  }
+
   // --- Core request pipeline --------------------------------------------------
 
   private buildUrl(path: string, query?: Record<string, string>): string {
@@ -186,6 +224,10 @@ export class RocketChatClient {
     if (options.body !== undefined) {
       headers['Content-Type'] = 'application/json';
       init.body = JSON.stringify(options.body);
+    } else if (options.formData !== undefined) {
+      // Fetch supplies the multipart boundary. Setting Content-Type manually
+      // would omit that boundary and make Rocket.Chat reject the upload.
+      init.body = options.formData;
     }
 
     let response: Response;

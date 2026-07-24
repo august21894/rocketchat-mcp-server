@@ -11,6 +11,8 @@ describe('config', () => {
     expect(config.allowedRooms).toEqual(['general', 'engineering']);
     expect(config.allowDm).toBe(true);
     expect(config.transport).toBe('stdio');
+    expect(config.allowedUploadPaths).toEqual([]);
+    expect(config.maxUploadBytes).toBe(25 * 1024 * 1024);
   });
 
   it('strips a trailing slash from the base URL', () => {
@@ -102,6 +104,16 @@ describe('config', () => {
       expect(() => loadConfig(makeEnv({ ROCKETCHAT_REQUEST_TIMEOUT_MS: '10' }))).toThrow(
         ConfigError,
       );
+      expect(
+        loadConfig({
+          ...makeEnv(),
+          ROCKETCHAT_ALLOWED_UPLOAD_PATHS: '/workspace,/tmp/uploads',
+          ROCKETCHAT_MAX_UPLOAD_BYTES: '4096',
+        }),
+      ).toMatchObject({
+        allowedUploadPaths: ['/workspace', '/tmp/uploads'],
+        maxUploadBytes: 4096,
+      });
     });
 
     it('defaults DM and group mentions to enabled', () => {
