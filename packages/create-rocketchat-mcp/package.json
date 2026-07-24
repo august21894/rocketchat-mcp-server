@@ -1,6 +1,6 @@
 {
   "name": "create-rocketchat-mcp",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Interactive initializer for a stable, secure Rocket.Chat MCP installation",
   "author": "LongLD",
   "license": "MIT",
